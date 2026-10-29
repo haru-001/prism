@@ -9,8 +9,8 @@ const nextConfig: NextConfig = {
       },
     },
   },
-  // 上游 Key 只在服务端使用，这些包不打进浏览器
-  serverExternalPackages: [],
+  // 数据库驱动和图片压缩库按原样从 node_modules 加载，不经过打包
+  serverExternalPackages: ["mysql2", "sharp"],
   poweredByHeader: false,
 };
 

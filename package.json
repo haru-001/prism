@@ -7,20 +7,24 @@
     "build": "next build",
     "start": "next start",
     "test:mock": "node tests/mock.mjs",
-    "test:api": "node tests/api-test.mjs"
+    "test:api": "node tests/api-test.mjs",
+    "test:mysql": "node tests/mysql-test.mjs",
+    "migrate": "node scripts/migrate-to-mysql.mjs"
   },
   "dependencies": {
-    "@upstash/redis": "^1.40.0",
     "@vercel/blob": "^2.8.2",
+    "@vercel/functions": "^3.10.4",
     "highlight.js": "^11.12.0",
     "lucide-react": "^1.63.0",
+    "mysql2": "^3.24.6",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

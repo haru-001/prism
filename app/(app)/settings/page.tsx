@@ -179,11 +179,15 @@ export default function SettingsPage() {
           <ul className="space-y-1.5 text-sm">
             <li>
               <span className="text-muted">数据：</span>
-              {flags.storage === "redis" ? "Upstash Redis" : "本地文件 .data/kv.json（仅适合本地开发）"}
+              {flags.storage === "mysql" ? "MySQL 数据库（Aiven）" : "本地文件 .data/kv.json（仅适合本地开发）"}
             </li>
             <li>
               <span className="text-muted">图片：</span>
-              {flags.blob ? "Vercel Blob" : "存在数据库里（建议接上 Vercel Blob，图片多了会占用 Redis 空间）"}
+              {flags.blob
+                ? "Vercel Blob"
+                : flags.storage === "mysql"
+                  ? "压缩后存在 MySQL 里，超过总量上限会自动删掉最早的图（接上 Vercel Blob 就没有这个限制）"
+                  : "存在本地文件里"}
             </li>
           </ul>
         </Section>

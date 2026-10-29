@@ -1,6 +1,7 @@
 import "server-only";
 import { kv, P } from "./kv";
 import { randomId } from "./crypto";
+import { existingFileIds, localFileId } from "./files";
 import type {
   Channel,
   Conversation,
@@ -123,7 +124,15 @@ export async function addGallery(items: Omit<GalleryItem, "id" | "createdAt">[])
 export async function listGallery(): Promise<GalleryItem[]> {
   const arr = await kv().lrange<GalleryItem>(P + "gallery", 0, 1999);
   const hidden = (await kv().get<string[]>(P + "gallery:hidden")) || [];
-  return arr.filter((x) => !hidden.includes(x.id));
+  const visible = arr.filter((x) => !hidden.includes(x.id));
+  // 图片存在 MySQL 里时，超出总量上限的旧图会被清理，图库里不再显示它们
+  const ids = visible.map((x) => localFileId(x.url)).filter((x): x is string => !!x);
+  if (!ids.length) return visible;
+  const alive = await existingFileIds(ids);
+  return visible.filter((x) => {
+    const id = localFileId(x.url);
+    return !id || alive.has(id);
+  });
 }
 
 export async function hideGallery(id: string) {

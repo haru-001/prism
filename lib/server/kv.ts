@@ -1,11 +1,13 @@
 import "server-only";
-import { Redis } from "@upstash/redis";
+import type { RowDataPacket } from "mysql2/promise";
 import fs from "node:fs";
 import path from "node:path";
 import { env } from "./env";
+import { q, tx, T } from "./mysql";
 
 /**
- * 极简 KV 抽象：线上用 Upstash Redis，本地没配 Redis 时落到 .data/kv.json，方便开发和测试。
+ * 极简 KV 抽象（接口沿用最初的 Redis 风格）：线上用 MySQL（Aiven for MySQL），
+ * 本地没配 DATABASE_URL 时落到 .data/kv.json，方便开发和测试。
  */
 export interface KV {
   get<T>(key: string): Promise<T | null>;
@@ -22,51 +24,77 @@ export interface KV {
 
 export const P = "prism:";
 
-class UpstashKV implements KV {
-  r: Redis;
-  constructor() {
-    this.r = new Redis({ url: env.redisUrl, token: env.redisToken });
+const J = (v: unknown) => (v === undefined ? "null" : JSON.stringify(v));
+const parse = <T,>(s: string): T => JSON.parse(s) as T;
+
+/** Aiven for MySQL（或任何 MySQL 8）：三张表分别存普通键、哈希和列表 */
+class MysqlKV implements KV {
+  private sweep() {
+    // 偶尔顺手清掉过期的键（只有登录失败计数这类键会过期）
+    if (Math.random() < 0.02) q(`DELETE FROM ${T.kv} WHERE exp IS NOT NULL AND exp < ?`, [Date.now()]).catch(() => {});
   }
   async get<T>(key: string) {
-    return ((await this.r.get<T>(key)) ?? null) as T | null;
+    const rows = await q<RowDataPacket[]>(`SELECT v, exp FROM ${T.kv} WHERE k = ?`, [key]);
+    const r = rows[0];
+    if (!r) return null;
+    if (r.exp != null && Number(r.exp) < Date.now()) {
+      await q(`DELETE FROM ${T.kv} WHERE k = ? AND exp < ?`, [key, Date.now()]);
+      return null;
+    }
+    return parse<T>(r.v);
   }
   async set(key: string, value: unknown, opts?: { ex?: number }) {
-    if (opts?.ex) await this.r.set(key, value, { ex: opts.ex });
-    else await this.r.set(key, value);
+    const exp = opts?.ex ? Date.now() + opts.ex * 1000 : null;
+    await q(`INSERT INTO ${T.kv} (k, v, exp) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v), exp = VALUES(exp)`, [key, J(value), exp]);
+    if (exp) this.sweep();
   }
   async del(key: string) {
-    await this.r.del(key);
+    await tx(async (run) => {
+      await run(`DELETE FROM ${T.kv} WHERE k = ?`, [key]);
+      await run(`DELETE FROM ${T.hash} WHERE k = ?`, [key]);
+      await run(`DELETE FROM ${T.list} WHERE k = ?`, [key]);
+    });
   }
   async incr(key: string, exSeconds?: number) {
-    const n = await this.r.incr(key);
-    if (exSeconds && n === 1) await this.r.expire(key, exSeconds);
-    return n;
+    const now = Date.now();
+    const exp = exSeconds ? now + exSeconds * 1000 : null;
+    return tx(async (run) => {
+      // 已过期的键按新键处理：从 1 开始，重新计时
+      await run(
+        `INSERT INTO ${T.kv} (k, v, exp) VALUES (?, '1', ?) ON DUPLICATE KEY UPDATE
+           v = IF(exp IS NOT NULL AND exp < ?, '1', CAST(CAST(v AS SIGNED) + 1 AS CHAR)),
+           exp = IF(exp IS NOT NULL AND exp < ?, VALUES(exp), exp)`,
+        [key, exp, now, now],
+      );
+      const rows = await run<RowDataPacket[]>(`SELECT v FROM ${T.kv} WHERE k = ?`, [key]);
+      return Number(rows[0]?.v || 0);
+    });
   }
   async lpush(key: string, value: unknown, maxLen: number) {
-    const p = this.r.pipeline();
-    p.lpush(key, JSON.stringify(value));
-    p.ltrim(key, 0, maxLen - 1);
-    await p.exec();
+    await q(`INSERT INTO ${T.list} (k, v) VALUES (?, ?)`, [key, J(value)]);
+    // 不放进事务：每条语句都能看到别的请求刚写进去的行，并发写入时也能准确裁到 maxLen 条
+    const rows = await q<RowDataPacket[]>(`SELECT id FROM ${T.list} WHERE k = ? ORDER BY id DESC LIMIT 1 OFFSET ?`, [key, maxLen - 1]);
+    if (rows[0]) await q(`DELETE FROM ${T.list} WHERE k = ? AND id < ?`, [key, rows[0].id]);
   }
   async lrange<T>(key: string, start: number, stop: number) {
-    const arr = await this.r.lrange(key, start, stop);
-    return arr.map((x) => (typeof x === "string" ? JSON.parse(x) : x)) as T[];
+    const limit = stop < 0 ? 1_000_000 : Math.max(0, stop - start + 1);
+    const rows = await q<RowDataPacket[]>(`SELECT v FROM ${T.list} WHERE k = ? ORDER BY id DESC LIMIT ? OFFSET ?`, [key, limit, start]);
+    return rows.map((r) => parse<T>(r.v));
   }
   async hset(key: string, field: string, value: unknown) {
-    await this.r.hset(key, { [field]: JSON.stringify(value) });
+    await q(`INSERT INTO ${T.hash} (k, f, v) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)`, [key, field, J(value)]);
   }
   async hget<T>(key: string, field: string) {
-    const v = await this.r.hget(key, field);
-    if (v == null) return null;
-    return (typeof v === "string" ? JSON.parse(v) : v) as T;
+    const rows = await q<RowDataPacket[]>(`SELECT v FROM ${T.hash} WHERE k = ? AND f = ?`, [key, field]);
+    return rows[0] ? parse<T>(rows[0].v) : null;
   }
   async hdel(key: string, field: string) {
-    await this.r.hdel(key, field);
+    await q(`DELETE FROM ${T.hash} WHERE k = ? AND f = ?`, [key, field]);
   }
   async hgetall<T>(key: string) {
-    const all = (await this.r.hgetall(key)) || {};
+    const rows = await q<RowDataPacket[]>(`SELECT f, v FROM ${T.hash} WHERE k = ?`, [key]);
     const out: Record<string, T> = {};
-    for (const [k, v] of Object.entries(all)) out[k] = (typeof v === "string" ? JSON.parse(v) : v) as T;
+    for (const r of rows) out[r.f] = parse<T>(r.v);
     return out;
   }
 }
@@ -155,10 +183,10 @@ class LocalKV implements KV {
 const g = globalThis as unknown as { __prismKV?: KV };
 
 export function kv(): KV {
-  if (!g.__prismKV) g.__prismKV = env.redisUrl && env.redisToken ? new UpstashKV() : new LocalKV();
+  if (!g.__prismKV) g.__prismKV = env.databaseUrl ? new MysqlKV() : new LocalKV();
   return g.__prismKV;
 }
 
-export function storageKind(): "redis" | "local" {
-  return env.redisUrl && env.redisToken ? "redis" : "local";
+export function storageKind(): "mysql" | "local" {
+  return env.databaseUrl ? "mysql" : "local";
 }

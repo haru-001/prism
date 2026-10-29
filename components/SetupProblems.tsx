@@ -12,7 +12,7 @@ export function SetupProblems({ problems }: { problems: string[] }) {
         <div className="mb-5 flex items-start gap-3">
           <IdolAvatar size={40} />
           <p className="rounded-2xl rounded-tl-md bg-soft px-3.5 py-2.5 text-sm leading-relaxed">
-            我检查了一下部署环境，下面这些还没配好。在 Vercel 项目的 Settings → Environment Variables / Storage 里补上，然后重新部署就好啦。
+            我检查了一下部署环境，下面这些还没配好。在 Vercel 项目的 Settings → Environment Variables 里补上，然后重新部署就好啦。
           </p>
         </div>
         <ul className="space-y-3 text-sm">
@@ -21,9 +21,9 @@ export function SetupProblems({ problems }: { problems: string[] }) {
               <b>PRISM_SECRET</b>：用来加密上游 Key 和签发登录凭证，填一串 32 位以上的随机字符。设好以后不要再改，否则已保存的 Key 会解不开。
             </li>
           )}
-          {problems.includes("REDIS") && (
+          {problems.includes("DATABASE") && (
             <li className="rounded-xl border border-rule p-3">
-              <b>Redis</b>：在 Vercel 的 Storage 里创建一个 Upstash Redis 并连到本项目，它会自动写入 KV_REST_API_URL / KV_REST_API_TOKEN（或 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN）。
+              <b>DATABASE_URL</b>：在 Aiven 上开一个免费的 MySQL，把服务概览页里的 Service URI 填进来（形如 mysql://avnadmin:密码@主机:端口/defaultdb?ssl-mode=REQUIRED）。再把同一页能下载的 CA 证书整段填进 <b>DATABASE_CA_CERT</b>。
             </li>
           )}
         </ul>

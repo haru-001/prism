@@ -8,7 +8,7 @@ import { callName } from "@/lib/copy";
 export interface Flags {
   envPassword: boolean;
   envToken: boolean;
-  storage: "redis" | "local";
+  storage: "mysql" | "local";
   blob: boolean;
   problems: string[];
 }
