@@ -1,0 +1,280 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --ground: #f7f6fb;
+  --card: #ffffff;
+  --side: #f1effa;
+  --ink: #1b1830;
+  --muted: #6b6785;
+  --rule: #e7e4f0;
+  --soft: #f1eefe;
+  --acc: #6d5dfc;
+  --acc-ink: #5b4bf0;
+  --hover: #ebe8f7;
+  --g: linear-gradient(135deg, #7c5cff, #3b82f6 55%, #14b8a6);
+  --ok: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  color-scheme: light;
+}
+
+.dark {
+  --ground: #0f0e17;
+  --card: #17151f;
+  --side: #13121b;
+  --ink: #ece9ff;
+  --muted: #9a96b5;
+  --rule: #2a2740;
+  --soft: #221f36;
+  --acc: #8b7dff;
+  --acc-ink: #a99fff;
+  --hover: #201d2e;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --bad: #f87171;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-card: var(--card);
+  --color-side: var(--side);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-soft: var(--soft);
+  --color-acc: var(--acc);
+  --color-acc-ink: var(--acc-ink);
+  --color-hover: var(--hover);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+@utility grad {
+  background: var(--g);
+}
+@utility grad-text {
+  background: var(--g);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility card {
+  @apply rounded-2xl border border-rule bg-card;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition select-none disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn text-white shadow-sm hover:brightness-110;
+  background: var(--g);
+}
+@utility btn-ghost {
+  @apply btn border border-rule bg-card text-ink hover:bg-hover;
+}
+@utility btn-danger {
+  @apply btn border border-rule bg-card text-bad hover:bg-hover;
+}
+@utility btn-sm {
+  @apply px-2.5 py-1 text-xs rounded-lg;
+}
+@utility input {
+  @apply w-full rounded-xl border border-rule bg-card px-3 py-2 text-sm text-ink outline-none transition placeholder:text-muted focus:border-acc focus:ring-2 focus:ring-acc/20;
+}
+@utility label {
+  @apply mb-1.5 block text-xs font-semibold text-muted;
+}
+@utility chip {
+  @apply inline-flex items-center gap-1 rounded-lg border border-rule bg-card px-2 py-1 text-xs text-muted transition hover:text-ink hover:bg-hover;
+}
+@utility chip-on {
+  @apply border-acc bg-soft text-acc-ink hover:text-acc-ink;
+}
+@utility tag {
+  @apply inline-flex items-center rounded-md px-1.5 py-px text-[10px] font-semibold leading-4;
+}
+@utility tag-chat {
+  @apply tag bg-blue-500/10 text-blue-600 dark:text-blue-300;
+}
+@utility tag-vision {
+  @apply tag bg-teal-500/10 text-teal-700 dark:text-teal-300;
+}
+@utility tag-image {
+  @apply tag bg-violet-500/10 text-violet-700 dark:text-violet-300;
+}
+@utility navitem {
+  @apply flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-ink/80 transition hover:bg-hover hover:text-ink;
+}
+@utility navitem-on {
+  @apply bg-card text-ink shadow-sm ring-1 ring-rule;
+}
+@utility coach {
+  @apply flex items-start gap-2.5 rounded-2xl bg-[#1b1830] p-3 text-[13px] leading-relaxed text-white shadow-xl dark:bg-[#2a2550];
+}
+@utility pill {
+  @apply mx-auto flex w-fit max-w-[92%] items-center gap-2 rounded-full border border-rule bg-card px-3 py-1.5 text-xs text-muted shadow-sm;
+}
+@utility num {
+  @apply inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white;
+  background: var(--g);
+}
+
+/* ===== Markdown ===== */
+.md {
+  line-height: 1.75;
+  word-break: break-word;
+  font-size: 15px;
+}
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md table,
+.md pre {
+  margin: 0.6em 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 700;
+  margin: 1em 0 0.5em;
+  line-height: 1.4;
+}
+.md h1 {
+  font-size: 1.35em;
+}
+.md h2 {
+  font-size: 1.2em;
+}
+.md h3 {
+  font-size: 1.08em;
+}
+.md ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.md ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 0.2em 0;
+}
+.md a {
+  color: var(--acc-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md blockquote {
+  border-left: 3px solid var(--acc);
+  padding: 0.1em 0 0.1em 0.9em;
+  color: var(--muted);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 1em 0;
+}
+.md table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  font-size: 0.92em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--rule);
+  padding: 0.35em 0.7em;
+}
+.md th {
+  background: var(--soft);
+}
+.md :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--soft);
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+}
+.md pre {
+  padding: 0;
+  background: transparent;
+}
+.md pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0.9em 1em;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  background: #14121d;
+  border-radius: 0 0 12px 12px;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.typing-caret::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  border-radius: 2px;
+  background: var(--acc);
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(110deg, var(--soft) 8%, var(--hover) 18%, var(--soft) 33%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position-x: -200%;
+  }
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
