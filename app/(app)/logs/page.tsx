@@ -5,6 +5,13 @@ import { ChevronDown, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Empty, PageHeader, toast } from "@/components/ui";
 import { api, fmtMs, fmtTime } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
+import dynamic from "next/dynamic";
+
+// 详情和重放按需加载，列表首屏不带这部分代码
+const LogDetailView = dynamic(() => import("@/components/LogDetailView"), {
+  ssr: false,
+  loading: () => <div className="shimmer h-24 rounded-lg" />,
+});
 import type { LogEntry } from "@/lib/types";
 
 const SOURCE: Record<LogEntry["source"], string> = {
@@ -58,7 +65,7 @@ export default function LogsPage() {
     return (logs || []).filter(
       (l) =>
         (filter === "all" || (filter === "ok" ? l.ok : !l.ok)) &&
-        (!kw || [l.model, l.upstreamModel, l.channel, l.error].some((s) => s?.toLowerCase().includes(kw))),
+        (!kw || [l.model, l.upstreamModel, l.channel, l.error, l.tokenName].some((s) => s?.toLowerCase().includes(kw))),
     );
   }, [logs, filter, q]);
 
@@ -117,7 +124,7 @@ export default function LogsPage() {
           ))}
           <label className="ml-auto flex min-w-[180px] items-center gap-2 rounded-xl border border-rule bg-card px-3 py-1.5">
             <Search size={14} className="text-muted" />
-            <input className="w-full bg-transparent text-sm outline-none placeholder:text-muted" placeholder="按模型、渠道、报错搜索" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input className="w-full bg-transparent text-sm outline-none placeholder:text-muted" placeholder="按模型、渠道、令牌、报错搜索" value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
         </div>
 
@@ -141,7 +148,7 @@ export default function LogsPage() {
             </div>
             {list.map((l) => {
               const expanded = open === l.id;
-              const hasMore = !!l.error || l.attempts > 1 || l.upstreamModel;
+              const hasMore = !!l.error || l.attempts > 1 || !!l.upstreamModel || !!l.detail || !!l.tokenName;
               return (
                 <div key={l.id}>
                   <button
@@ -155,6 +162,8 @@ export default function LogsPage() {
                         {SOURCE[l.source] || l.source}
                         {l.stream && " · 流式"}
                         {l.attempts > 1 && ` · 切换 ${l.attempts - 1} 次`}
+                        {l.tokenName && ` · ${l.tokenName}`}
+                        {l.replayOf && <span className="ml-1 rounded bg-acc/10 px-1 text-[10px] text-acc-ink">重放</span>}
                       </span>
                     </span>
                     <span className="order-4 truncate text-xs text-muted md:order-none md:text-sm md:text-ink">{l.channel || "—"}</span>
@@ -184,7 +193,20 @@ export default function LogsPage() {
                         <span className="text-muted">尝试线路数：</span>
                         {l.attempts}
                       </div>
+                      {l.tokenName && (
+                        <div>
+                          <span className="text-muted">令牌：</span>
+                          {l.tokenName}
+                        </div>
+                      )}
                       {l.error && <pre className="whitespace-pre-wrap break-all font-mono text-bad">{l.error}</pre>}
+                      {l.detail ? (
+                        <div className="pt-2">
+                          <LogDetailView id={l.id} onReplayed={() => void load()} />
+                        </div>
+                      ) : (
+                        <p className="pt-1 text-muted">这条日志没有存请求和响应详情（升级前的旧日志）。</p>
+                      )}
                     </div>
                   )}
                 </div>

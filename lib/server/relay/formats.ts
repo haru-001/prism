@@ -313,6 +313,6 @@ export function geminiJSON(c: Collected, model: string) {
 
 export function geminiError(status: number, message: string) {
   const st =
-    status === 401 || status === 403 ? "PERMISSION_DENIED" : status === 404 ? "NOT_FOUND" : status === 429 ? "RESOURCE_EXHAUSTED" : status === 400 ? "INVALID_ARGUMENT" : "INTERNAL";
+    status === 401 || status === 403 ? "PERMISSION_DENIED" : status === 404 ? "NOT_FOUND" : status === 429 ? "RESOURCE_EXHAUSTED" : status === 400 ? "INVALID_ARGUMENT" : status === 503 ? "UNAVAILABLE" : "INTERNAL";
   return Response.json({ error: { code: status, message, status: st } }, { status });
 }

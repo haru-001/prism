@@ -15,6 +15,8 @@ export const env = {
   databaseCa: process.env.DATABASE_CA_CERT || "",
   databaseCaFile: process.env.DATABASE_CA_FILE || "",
   dbPoolSize: Math.min(10, num(process.env.DB_POOL_SIZE, 3)),
+  /** 渠道、设置、登录态等配置在实例内存里缓存的秒数；0 表示不缓存 */
+  cacheTtlMs: (process.env.PRISM_CACHE_TTL && Number.isFinite(Number(process.env.PRISM_CACHE_TTL)) ? Math.max(0, Number(process.env.PRISM_CACHE_TTL)) : 30) * 1000,
   // 没接 Blob、图片存进 MySQL 时：单张上限（KB）和总量上限（MB），超出总量就删最早的
   imageMaxKB: num(process.env.DB_IMAGE_MAX_KB, 800),
   imagesMaxMB: num(process.env.DB_IMAGES_MAX_MB, 300),

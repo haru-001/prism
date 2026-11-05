@@ -12,7 +12,7 @@ export function SetupProblems({ problems }: { problems: string[] }) {
         <div className="mb-5 flex items-start gap-3">
           <IdolAvatar size={40} />
           <p className="rounded-2xl rounded-tl-md bg-soft px-3.5 py-2.5 text-sm leading-relaxed">
-            我检查了一下部署环境，下面这些还没配好。在 Vercel 项目的 Settings → Environment Variables 里补上，然后重新部署就好啦。
+            我检查了一下部署环境，下面这些还没配好。在 Vercel 项目的 Settings → Environment Variables 里补上，然后重新部署即可。
           </p>
         </div>
         <ul className="space-y-3 text-sm">

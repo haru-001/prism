@@ -1,5 +1,5 @@
 # 端到端界面检查：需要空的 .data 和运行中的 mock（9100）与 next start（3100）
-import os, sys, json
+import os, sys, json, time
 from playwright.sync_api import sync_playwright, expect
 
 APP = "http://127.0.0.1:3100"
@@ -8,6 +8,12 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots")
 os.makedirs(OUT, exist_ok=True)
 results = []
 errors = []
+_shot = [20]
+
+
+def snap(page, name):
+    _shot[0] += 1
+    page.screenshot(path=f"{OUT}/{_shot[0]:02d}-{name}.png")
 
 
 def ok(name, cond, info=""):
@@ -191,6 +197,162 @@ with sync_playwright() as p:
         page.screenshot(path=f"{OUT}/14-gallery.png")
         page.keyboard.press("Escape")
 
+    print("[新功能：预设、并排、导出、用量、令牌、日志详情、备份]")
+    page.on("dialog", lambda d: d.accept())
+    # 提示词预设
+    page.goto(APP + "/settings")
+    page.wait_for_selector("[data-testid=preset-manager]")
+    page.click("[data-testid=preset-manager] button:has-text('新建预设')")
+    page.fill("input[placeholder='比如：中英互译']", "测试翻译官")
+    page.fill("textarea[placeholder^='你是一位专业的翻译']", "你是一位专业翻译。")
+    page.click("[role=dialog] button:has-text('保存')")
+    page.wait_for_selector("[data-testid=preset-item]:has-text('测试翻译官')")
+    ok("设置页新建提示词预设", page.locator("[data-testid=preset-item]").count() == 1)
+    page.goto(APP + "/")
+    page.wait_for_selector("[data-testid=preset-row]")
+    page.click("[data-testid=preset-row] button:has-text('测试翻译官')")
+    page.wait_for_selector("text=已套用预设「测试翻译官」")
+    ok("新建会话的空白页能选预设", True)
+    # 回归：保存请求很慢时，保存成功前列表里不能先出现新预设；保存完立刻回聊天页也要能看到
+    held = []
+    # 先扣住 PUT 请求不放（不能在回调里 sleep，会把测试线程一起卡住）
+    page.route("**/api/presets", lambda route: held.append(route) if route.request.method == "PUT" else route.continue_())
+    page.goto(APP + "/settings")
+    page.wait_for_selector("[data-testid=preset-item]:has-text('测试翻译官')")
+    page.click("[data-testid=preset-manager] button:has-text('新建预设')")
+    page.fill("input[placeholder='比如：中英互译']", "慢速保存")
+    page.fill("textarea[placeholder^='你是一位专业的翻译']", "保存很慢的时候也不能丢。")
+    page.click("[role=dialog] button:has-text('保存')")
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    page.wait_for_timeout(800)
+    early = page.locator("[data-testid=preset-item]:has-text('慢速保存')").count()
+    held[0].continue_()
+    page.wait_for_selector("[data-testid=preset-item]:has-text('慢速保存')", timeout=10000)
+    page.unroute("**/api/presets")
+    page.goto(APP + "/")
+    page.wait_for_selector("[data-testid=preset-row]")
+    row_text = page.locator("[data-testid=preset-row]").inner_text()
+    ok("保存确认前不先显示，保存后马上回聊天页能看到新预设", early == 0 and "慢速保存" in row_text and "测试翻译官" in row_text, f"early={early} row={row_text}")
+    page.click("[data-testid=preset-row] button:has-text('测试翻译官')")
+    page.wait_for_selector("text=已套用预设「测试翻译官」")
+    # 并排对比
+    page.click("button:has-text('并排')")
+    page.wait_for_selector("[data-testid=compare-option]")
+    pick = page.locator("[data-testid=compare-option]:not([disabled])").first
+    picked = pick.inner_text().strip().split("\n")[0]
+    pick.click()
+    ok("并排里选了第二个模型", page.locator("button:has-text('并排 · 2 个模型')").count() == 1, picked)
+    page.keyboard.press("Escape")
+    page.fill("textarea", "并排测试一下")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("[data-testid=compare-row]", timeout=20000)
+    page.wait_for_function("document.querySelectorAll('[data-testid=compare-row] .card').length === 2 && !document.querySelector('[data-testid=compare-row] .animate-pulse')", timeout=20000)
+    page.wait_for_timeout(800)
+    row = page.locator("[data-testid=compare-row]")
+    ok("两个模型并排回答", row.locator(".card").count() == 2, row.inner_text()[:300])
+    ok("默认选用第一个", row.locator("text=已选用").count() == 1 and row.locator("button:has-text('选用这个')").count() == 1)
+    row.locator("button:has-text('选用这个')").click()
+    page.wait_for_timeout(300)
+    ok("点「选用这个」切换选用的回答", row.locator(".card").nth(1).locator("text=已选用").count() == 1, row.inner_text()[:300])
+    snap(page, "compare")
+    # 导出
+    page.wait_for_timeout(1200)
+    page.click("button[aria-label='导出对话']")
+    with page.expect_download() as dl:
+        page.click("a:has-text('Markdown')")
+    d = dl.value
+    path = d.path()
+    md = open(path, encoding="utf-8").read() if path else ""
+    ok("导出 Markdown 下载成功", d.suggested_filename.endswith(".md") and "并排测试一下" in md and "已选用" in md, d.suggested_filename)
+    page.click("button[aria-label='导出对话']")
+    with page.expect_download() as dl:
+        page.click("a:has-text('JSON')")
+    ok("导出 JSON 下载成功", dl.value.suggested_filename.endswith(".json"))
+    page.keyboard.press("Escape")
+    # 识图提示：把 gpt-4o-mini 的能力标签手动改成只有「对话」，附图后把它加进并排，应该提示换模型
+    chs = page.request.get(APP + "/api/channels").json()["channels"]
+    oa = [c for c in chs if "gpt-4o-mini" in c["models"]][0]
+    page.request.patch(APP + f"/api/channels/{oa['id']}", data={"caps": {"gpt-4o-mini": ["chat"]}})
+    page.goto(APP + "/")
+    page.wait_for_selector("textarea")
+    page.set_input_files("main input[type=file]", os.path.join(os.path.dirname(OUT), "..", "public", "img", "idol-128.jpg"))
+    page.wait_for_timeout(600)
+    ok("附图后当前模型能识图时不提示", page.locator("text=没有「识图」标签").count() == 0)
+    page.click("button:has-text('并排')")
+    page.locator("[data-testid=compare-option]:has-text('gpt-4o-mini')").first.click()
+    page.keyboard.press("Escape")
+    page.wait_for_selector("text=没有「识图」标签", timeout=5000)
+    ok("并排里有不能识图的模型时提示", "gpt-4o-mini" in page.locator("text=没有「识图」标签").first.inner_text())
+    snap(page, "vision-hint")
+    page.request.patch(APP + f"/api/channels/{oa['id']}", data={"caps": {}})
+    # 用量页
+    page.goto(APP + "/usage")
+    page.wait_for_selector("[data-testid=usage-trend]")
+    page.wait_for_selector("text=按模型")
+    ok("用量页：4 个统计卡片和每日趋势图", page.locator("[data-testid=usage-stat]").count() == 4 and page.locator("[data-testid=usage-trend] svg rect").count() >= 14)
+    page.click("button:has-text('30 天')")
+    page.wait_for_function("document.querySelectorAll('[data-testid=usage-trend] svg g').length === 30")
+    ok("切换到 30 天", True)
+    page.wait_for_selector("[data-testid=pricing-editor] button:has-text('加一条')")
+    page.click("[data-testid=pricing-editor] button:has-text('加一条')")
+    page.fill("[data-testid=price-row] input[placeholder='gpt-4o*']", "gpt-4o*")
+    page.fill("[data-testid=price-row] input[placeholder='输入']", "2.5")
+    page.fill("[data-testid=price-row] input[placeholder='输出']", "10")
+    page.click("button:has-text('保存单价')")
+    page.wait_for_selector("text=单价已保存")
+    ok("用量页保存模型单价", True)
+    snap(page, "usage")
+    # 令牌管理
+    page.goto(APP + "/tokens")
+    page.wait_for_selector("[data-testid=token-row]")
+    ok("令牌页列出默认令牌", page.locator("[data-testid=token-row]").count() == 1)
+    page.click("button:has-text('新建令牌')")
+    page.fill("input[placeholder='比如：沉浸式翻译']", "UI 测试令牌")
+    page.select_option("select", "tokens")
+    page.fill("input[placeholder='比如 1000000']", "5000")
+    page.click("button:has-text('创建')")
+    page.wait_for_selector("[data-testid=token-row]:has-text('UI 测试令牌')")
+    trow = page.locator("[data-testid=token-row]:has-text('UI 测试令牌')")
+    ok("新建带额度的令牌", trow.count() == 1 and "5K tokens" in trow.inner_text(), trow.inner_text())
+    trow.locator("button[role=switch]").first.click()
+    page.wait_for_selector("[data-testid=token-row]:has-text('已停用')")
+    ok("停用令牌立刻反映在界面上", True)
+    snap(page, "tokens2")
+    # 日志详情和重放
+    page.goto(APP + "/logs")
+    first = page.locator("button:has-text('聊天页')").first
+    first.click()
+    page.wait_for_selector("[data-testid=log-detail]")
+    det = page.locator("[data-testid=log-detail]").first
+    ok("展开日志看到请求和响应详情", "请求体" in det.inner_text() and "响应体" in det.inner_text())
+    n0 = page.locator("text=重放").count()
+    det.locator("button:has-text('一键重放')").click()
+    page.wait_for_selector("text=重放结果", timeout=20000)
+    page.wait_for_timeout(800)
+    ok("一键重放后显示结果，列表多一条「重放」", "HTTP 200" in det.inner_text() and page.locator("span:text-is('重放')").count() >= 1, det.inner_text()[:200])
+    snap(page, "logdetail")
+    # 备份与恢复
+    page.goto(APP + "/settings#backup")
+    page.wait_for_selector("[data-testid=backup-panel]")
+    page.fill("input[placeholder='设一个备份密码（至少 6 位）']", "ui-backup-1")
+    with page.expect_download() as dl:
+        page.click("button:has-text('导出加密备份')")
+    bpath = dl.value.path()
+    ok("导出加密备份", dl.value.suggested_filename.endswith(".prismbak"), dl.value.suggested_filename)
+    page.set_input_files("[data-testid=backup-panel] input[type=file]", bpath)
+    page.fill("input[placeholder='备份密码']", "ui-backup-1")
+    page.click("button:has-text('先预览')")
+    page.wait_for_selector("[data-testid=backup-preview]")
+    pv = page.locator("[data-testid=backup-preview]").inner_text()
+    ok("恢复前预览会覆盖的内容", "会覆盖" in pv and "渠道" in pv and "会话" in pv, pv[:300])
+    snap(page, "backup")
+    page.click("button:has-text('确认恢复')")
+    page.wait_for_selector("text=恢复完成")
+    ok("确认后恢复完成", True)
+
     print("[重新看引导、退出、登录]")
     page.goto(APP + "/settings")
     page.wait_for_selector("text=重新看引导")
@@ -222,7 +384,7 @@ with sync_playwright() as p:
     m.add_cookies(ctx.cookies())
     mp = m.new_page()
     mp.on("pageerror", lambda e: errors.append(f"mobile pageerror: {e}"))
-    for path, name in [("/", "chat"), ("/channels", "channels"), ("/tokens", "tokens"), ("/logs", "logs"), ("/settings", "settings"), ("/gallery", "gallery")]:
+    for path, name in [("/", "chat"), ("/channels", "channels"), ("/tokens", "tokens"), ("/logs", "logs"), ("/settings", "settings"), ("/gallery", "gallery"), ("/usage", "usage")]:
         mp.goto(APP + path)
         mp.wait_for_timeout(900)
         sw = mp.evaluate("document.documentElement.scrollWidth")

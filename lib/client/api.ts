@@ -26,11 +26,21 @@ export async function api<T = unknown>(url: string, opts: { method?: string; bod
     /* 空响应 */
   }
   if (!res.ok) {
+    notifyDbDown(res.status, data);
     const e = (data as { error?: unknown })?.error;
     const msg = typeof e === "string" ? e : (e as { message?: string })?.message || `请求失败（${res.status}）`;
     throw new ApiError(msg, res.status);
   }
   return data as T;
+}
+
+/** 服务端说数据库睡着了（503 + db_sleeping 等）：通知根布局弹出「数据库睡着了」提示 */
+export function notifyDbDown(status: number, data: unknown) {
+  const code = (data as { code?: string })?.code;
+  if (status !== 503 || !code?.startsWith("db_") || typeof window === "undefined") return false;
+  const kind = code === "db_busy" ? "busy" : code === "db_config" ? "config" : "down";
+  window.dispatchEvent(new CustomEvent("prism:db-down", { detail: { kind } }));
+  return true;
 }
 
 /** 读取服务端 SSE：onEvent(event, data) */
@@ -75,7 +85,10 @@ export async function uploadImage(file: File): Promise<string> {
   fd.append("file", blob, file.name || "image");
   const res = await fetch("/api/upload", { method: "POST", body: fd });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.error || "上传失败");
+  if (!res.ok) {
+    notifyDbDown(res.status, j);
+    throw new Error(j.error || "上传失败");
+  }
   return j.url as string;
 }
 

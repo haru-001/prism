@@ -1,4 +1,5 @@
 "use client";
+import { RinneFigure } from "./rinne/RinneFigure";
 
 import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -67,6 +68,9 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={typeof title === "string" ? title : undefined}
         className={`card max-h-[92vh] w-full overflow-hidden rounded-b-none shadow-2xl sm:rounded-2xl ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"} flex flex-col`}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -145,12 +149,15 @@ export function Toaster() {
       {items.map((t) => (
         <div
           key={t.id}
-          className={`pointer-events-auto flex items-center gap-2 rounded-full border border-rule bg-card px-4 py-2 text-sm shadow-lg ${
+          role="status"
+          className={`pointer-events-auto flex items-end gap-1 overflow-hidden rounded-2xl border border-rule bg-card pr-4 text-sm shadow-lg ${
             t.kind === "err" ? "text-bad" : t.kind === "ok" ? "text-ok" : "text-ink"
           }`}
+          data-testid="toast"
         >
-          <IdolAvatar size={20} />
-          {t.text}
+          {/* toast 配一张小立绘（150px 档的专用小图，不拿大图缩小） */}
+          <RinneFigure mood={t.kind === "err" ? "error" : t.kind === "ok" ? "success" : "guide"} size="xs" className="rn-toast-fig shrink-0" standalone />
+          <span className="mb-4 max-w-[60vw] sm:max-w-xs">{t.text}</span>
         </div>
       ))}
     </div>

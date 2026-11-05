@@ -18,6 +18,6 @@ const c = await mysql.createConnection({
   database: u.pathname.slice(1) || "defaultdb",
   ssl: ca ? { ca } : { rejectUnauthorized: false },
 });
-for (const t of ["prism_kv", "prism_hash", "prism_list", "prism_files"]) await c.query(`DROP TABLE IF EXISTS ${t}`);
+for (const t of ["prism_kv", "prism_hash", "prism_list", "prism_files", "prism_usage", "prism_logd"]) await c.query(`DROP TABLE IF EXISTS ${t}`);
 await c.end();
 console.log("已清空 Prism 的数据表");

@@ -4,5 +4,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export const POST = handleClaudeMessages;
+// 第二个参数是 Next 的路由上下文，不能直接传给处理函数
+export function POST(req: Request) {
+  return handleClaudeMessages(req);
+}
 export const OPTIONS = preflight;

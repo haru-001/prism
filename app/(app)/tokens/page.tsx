@@ -6,6 +6,13 @@ import { useApp } from "@/components/AppContext";
 import { IdolSay, PageHeader, copyText, toast } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
+import dynamic from "next/dynamic";
+
+// 令牌管理按需加载，首屏只有地址和默认令牌
+const TokenManager = dynamic(() => import("@/components/TokenManager"), {
+  ssr: false,
+  loading: () => <div className="shimmer h-40 rounded-2xl" />,
+});
 
 const ENDPOINTS = [
   { method: "POST", path: "/v1/chat/completions", desc: "OpenAI 格式对话，支持流式" },
@@ -72,7 +79,7 @@ export default function TokensPage() {
 
   return (
     <div className="scroll-thin h-full overflow-y-auto">
-      <PageHeader title="令牌与接口" sub="给外部客户端用，一个令牌通吃" />
+      <PageHeader title="令牌与接口" sub="给外部客户端用，可以按客户端分开发令牌" />
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6 md:px-8">
         <IdolSay>{copy.tokens.say}</IdolSay>
 
@@ -99,6 +106,8 @@ export default function TokensPage() {
           </p>
         </div>
 
+        <TokenManager key={token} onDefaultChange={(k) => setToken(k)} />
+
         <div>
           <h2 className="mb-2 font-semibold">客户端怎么填</h2>
           <div className="card divide-y divide-rule text-sm">
@@ -120,7 +129,7 @@ export default function TokensPage() {
             ))}
           </div>
           <p className="mt-2 text-xs text-muted">
-            密钥 / API Key 一律填上面的令牌。模型名用渠道里勾选的名字或别名，当前可用 {modelCount} 个。
+            密钥 / API Key 填上面任意一个令牌。模型名用渠道里勾选的名字或别名，当前可用 {modelCount} 个。
           </p>
         </div>
 

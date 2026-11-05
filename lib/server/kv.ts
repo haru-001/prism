@@ -10,7 +10,10 @@ import { q, tx, T } from "./mysql";
  * 本地没配 DATABASE_URL 时落到 .data/kv.json，方便开发和测试。
  */
 export interface KV {
-  get<T>(key: string): Promise<T | null>;
+  /** fresh: 跳过内存缓存直接读库（读-改-写时用，避免拿旧数据覆盖别的实例刚写的内容） */
+  get<T>(key: string, opts?: { fresh?: boolean }): Promise<T | null>;
+  /** 一次往返读多个普通键 */
+  mget(keys: string[], opts?: { fresh?: boolean }): Promise<Record<string, unknown>>;
   set(key: string, value: unknown, opts?: { ex?: number }): Promise<void>;
   del(key: string): Promise<void>;
   incr(key: string, exSeconds?: number): Promise<number>;
@@ -43,17 +46,27 @@ class MysqlKV implements KV {
     }
     return parse<T>(r.v);
   }
+  async mget(keys: string[]) {
+    const out: Record<string, unknown> = {};
+    if (!keys.length) return out;
+    const rows = await q<RowDataPacket[]>(`SELECT k, v, exp FROM ${T.kv} WHERE k IN (?)`, [keys]);
+    const now = Date.now();
+    for (const k of keys) out[k] = null;
+    for (const r of rows) if (r.exp == null || Number(r.exp) >= now) out[r.k] = parse(r.v);
+    return out;
+  }
   async set(key: string, value: unknown, opts?: { ex?: number }) {
     const exp = opts?.ex ? Date.now() + opts.ex * 1000 : null;
     await q(`INSERT INTO ${T.kv} (k, v, exp) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v), exp = VALUES(exp)`, [key, J(value), exp]);
     if (exp) this.sweep();
   }
   async del(key: string) {
-    await tx(async (run) => {
-      await run(`DELETE FROM ${T.kv} WHERE k = ?`, [key]);
-      await run(`DELETE FROM ${T.hash} WHERE k = ?`, [key]);
-      await run(`DELETE FROM ${T.list} WHERE k = ?`, [key]);
-    });
+    // 一个键只会在其中一张表里；三条删除并行发出，只等一个往返（原来是事务里串行 5 次往返）
+    await Promise.all([
+      q(`DELETE FROM ${T.kv} WHERE k = ?`, [key]),
+      q(`DELETE FROM ${T.hash} WHERE k = ?`, [key]),
+      q(`DELETE FROM ${T.list} WHERE k = ?`, [key]),
+    ]);
   }
   async incr(key: string, exSeconds?: number) {
     const now = Date.now();
@@ -72,9 +85,12 @@ class MysqlKV implements KV {
   }
   async lpush(key: string, value: unknown, maxLen: number) {
     await q(`INSERT INTO ${T.list} (k, v) VALUES (?, ?)`, [key, J(value)]);
-    // 不放进事务：每条语句都能看到别的请求刚写进去的行，并发写入时也能准确裁到 maxLen 条
-    const rows = await q<RowDataPacket[]>(`SELECT id FROM ${T.list} WHERE k = ? ORDER BY id DESC LIMIT 1 OFFSET ?`, [key, maxLen - 1]);
-    if (rows[0]) await q(`DELETE FROM ${T.list} WHERE k = ? AND id < ?`, [key, rows[0].id]);
+    // 不放进事务：每条语句都能看到别的请求刚写进去的行，并发写入时也能准确裁到 maxLen 条。
+    // 裁剪合成一条语句（原来是先查第 maxLen 条的 id 再删，两次往返）
+    await q(
+      `DELETE FROM ${T.list} WHERE k = ? AND id < (SELECT id FROM (SELECT id FROM ${T.list} WHERE k = ? ORDER BY id DESC LIMIT 1 OFFSET ?) AS cut)`,
+      [key, key, maxLen - 1],
+    );
   }
   async lrange<T>(key: string, start: number, stop: number) {
     const limit = stop < 0 ? 1_000_000 : Math.max(0, stop - start + 1);
@@ -137,6 +153,11 @@ class LocalKV implements KV {
     const v = this.raw(key);
     return v == null ? null : (structuredClone(v) as T);
   }
+  async mget(keys: string[]) {
+    const out: Record<string, unknown> = {};
+    for (const k of keys) out[k] = await this.get(k);
+    return out;
+  }
   async set(key: string, value: unknown, opts?: { ex?: number }) {
     this.load();
     this.data[key] = { v: structuredClone(value), exp: opts?.ex ? Date.now() + opts.ex * 1000 : undefined };
@@ -180,10 +201,112 @@ class LocalKV implements KV {
   }
 }
 
+/**
+ * 很少变、但几乎每个请求都要读的配置（密码哈希、渠道、设置、引导进度、访问令牌、图库隐藏列表）
+ * 在实例内存里缓存一小段时间：
+ * - 任何一个缺了，就用一条 SQL 把这几个键一起读回来（冷启动时只多一次往返）
+ * - 本实例写入时同步更新缓存，所以「改了就生效」
+ * - 别的实例最多晚 PRISM_CACHE_TTL 秒看到变化；关键路径（登录态、令牌、找不到模型）发现对不上时会再直接读库确认
+ */
+export const HOT_KEYS = [P + "auth:pw", P + "channels", P + "settings", P + "onboarding", P + "token", P + "tokens", P + "pricing", P + "presets", P + "gallery:hidden", P + "dbsize"];
+const HOT = new Set(HOT_KEYS);
+
+class CachedKV implements KV {
+  private mem = new Map<string, { v: unknown; at: number }>();
+  private loading: Promise<void> | null = null;
+  constructor(
+    private inner: KV,
+    private ttlMs: number,
+  ) {}
+  private fresh(k: string) {
+    const e = this.mem.get(k);
+    return !!e && Date.now() - e.at < this.ttlMs;
+  }
+  private prime(k: string, v: unknown) {
+    if (HOT.has(k) && this.ttlMs > 0) this.mem.set(k, { v: v === undefined ? null : structuredClone(v), at: Date.now() });
+  }
+  private out<T>(k: string): T | null {
+    const v = this.mem.get(k)?.v;
+    return v == null ? null : (structuredClone(v) as T);
+  }
+  /** 把所有过期/缺失的热键一次读回来；并发请求共用同一次读取 */
+  private async fill(force: string[] = []) {
+    if (this.loading && !force.length) return this.loading;
+    const need = HOT_KEYS.filter((k) => force.includes(k) || !this.fresh(k));
+    if (!need.length) return;
+    const p = this.inner.mget(need).then((vals) => {
+      for (const k of need) this.prime(k, vals[k]);
+    });
+    if (!force.length) {
+      this.loading = p.finally(() => {
+        this.loading = null;
+      });
+      return this.loading;
+    }
+    return p;
+  }
+  async get<T>(key: string, opts?: { fresh?: boolean }) {
+    if (!HOT.has(key) || this.ttlMs <= 0) return this.inner.get<T>(key);
+    if (opts?.fresh) {
+      const v = await this.inner.get<T>(key);
+      this.prime(key, v);
+      return v;
+    }
+    if (!this.fresh(key)) await this.fill();
+    if (!this.fresh(key)) await this.fill([key]);
+    return this.out<T>(key);
+  }
+  async mget(keys: string[], opts?: { fresh?: boolean }) {
+    const out: Record<string, unknown> = {};
+    const cold = keys.filter((k) => !HOT.has(k) || this.ttlMs <= 0 || opts?.fresh);
+    const hot = keys.filter((k) => !cold.includes(k));
+    // 读热键时顺带把其它热键一起读回来
+    const [, coldVals] = await Promise.all([
+      hot.some((k) => !this.fresh(k)) ? this.fill() : null,
+      cold.length ? this.inner.mget(cold) : ({} as Record<string, unknown>),
+    ]);
+    for (const k of cold) {
+      out[k] = coldVals[k] ?? null;
+      this.prime(k, out[k]);
+    }
+    for (const k of hot) out[k] = this.out(k);
+    return out;
+  }
+  async set(key: string, value: unknown, opts?: { ex?: number }) {
+    await this.inner.set(key, value, opts);
+    if (!opts?.ex) this.prime(key, value);
+  }
+  async del(key: string) {
+    await this.inner.del(key);
+    this.prime(key, null);
+  }
+  incr(key: string, exSeconds?: number) {
+    return this.inner.incr(key, exSeconds);
+  }
+  lpush(key: string, value: unknown, maxLen: number) {
+    return this.inner.lpush(key, value, maxLen);
+  }
+  lrange<T>(key: string, start: number, stop: number) {
+    return this.inner.lrange<T>(key, start, stop);
+  }
+  hset(key: string, field: string, value: unknown) {
+    return this.inner.hset(key, field, value);
+  }
+  hget<T>(key: string, field: string) {
+    return this.inner.hget<T>(key, field);
+  }
+  hdel(key: string, field: string) {
+    return this.inner.hdel(key, field);
+  }
+  hgetall<T>(key: string) {
+    return this.inner.hgetall<T>(key);
+  }
+}
+
 const g = globalThis as unknown as { __prismKV?: KV };
 
 export function kv(): KV {
-  if (!g.__prismKV) g.__prismKV = env.databaseUrl ? new MysqlKV() : new LocalKV();
+  if (!g.__prismKV) g.__prismKV = env.databaseUrl ? new CachedKV(new MysqlKV(), env.cacheTtlMs) : new LocalKV();
   return g.__prismKV;
 }
 

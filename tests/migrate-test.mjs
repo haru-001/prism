@@ -84,8 +84,15 @@ if (mode === "snapshot") {
   check(`渠道一致（${old.channels.length} 条）`, eq(old.channels, now.channels), now.channels?.length);
   check(`对话列表一致（${old.convs.length} 个）`, old.convs.length > 0 && eq(old.convs, now.convs), now.convs);
   check("对话内容一致（含中文和 emoji）", eq(old.full, now.full));
-  check(`图库一致（${old.gallery.length} 张）`, old.gallery.length > 0 && eq(old.gallery, now.gallery), now.gallery);
-  check("图片地址不变、内容逐字节一致", eq(old.images, now.images) && Object.values(now.images).every((x) => x.startsWith("200:")), now.images);
+  // 新版读出来的图片地址会补上签名 s=（存的数据没变），比较前去掉签名
+  const unsign = (u) => (typeof u === "string" ? u.replace(/[?&]s=[^&]*$/, "").replace(/\?s=[^&]*&/, "?") : u);
+  const gNorm = (g) => g.map((x) => ({ ...x, url: unsign(x.url) }));
+  const iNorm = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [unsign(k), v]));
+  check(`图库一致（${old.gallery.length} 张，忽略新加的签名）`, old.gallery.length > 0 && eq(gNorm(old.gallery), gNorm(now.gallery)), now.gallery);
+  check("图片地址不变、内容逐字节一致", eq(iNorm(old.images), iNorm(now.images)) && Object.values(now.images).every((x) => x.startsWith("200:")), now.images);
+  const anon = [];
+  for (const g of now.gallery) anon.push((await fetch(new URL(g.url, APP))).status);
+  check("新版图库地址带签名，不登录也能打开", now.gallery.every((g) => /[?&]s=/.test(g.url)) && anon.every((s) => s === 200), anon);
   check(`请求日志一致且顺序不变（${old.logs.length} 条）`, old.logs.length > 0 && eq(old.logs, now.logs), now.logs?.length);
   check("设置一致", eq(old.settings, now.settings));
   check("引导进度一致", eq(old.onboarding, now.onboarding));

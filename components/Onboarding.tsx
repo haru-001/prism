@@ -7,6 +7,9 @@ import { copy, fill } from "@/lib/copy";
 import { normalizeBaseUrl } from "@/lib/models";
 import type { ChannelType, PublicChannel } from "@/lib/types";
 import { Brand, IdolAvatar } from "./Logo";
+import { RinneScene } from "./rinne/RinneScene";
+import { RinneBubble } from "./rinne/RinneBubble";
+import type { Mood } from "@/lib/rinne";
 import { ProviderCards } from "./ProviderCards";
 import { CHANNEL_TYPES } from "@/lib/models";
 
@@ -21,14 +24,6 @@ function Tip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Say({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="my-4 flex items-start gap-3">
-      <IdolAvatar size={44} />
-      <div className="rounded-2xl rounded-tl-md border border-rule bg-soft px-3.5 py-2.5 text-sm leading-relaxed">{children}</div>
-    </div>
-  );
-}
 
 export function Onboarding({ passwordMode, channelCount, name }: { passwordMode: PwMode; channelCount: number; name: string }) {
   const [step, setStep] = useState(1);
@@ -177,9 +172,57 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
 
   const endpoint = normalizeBaseUrl(type, baseUrl);
 
+  const say =
+    step === 1 ? (
+      <>
+              {pwMode === "env"
+                ? copy.onboarding.step1EnvSay
+                : pwMode === "set"
+                  ? copy.onboarding.step1DoneSay
+                  : fill(copy.onboarding.step1Say, { name })}
+      </>
+    ) : step === 2 ? (
+      <>
+              {copy.onboarding.step2Say}
+              {existing > 0 && <> {name}已接好 {existing} 条线路，也可以直接进入对话。</>}
+      </>
+    ) : (
+      <>
+              {fetchErr ? (
+                fill(copy.onboarding.step3Fail, { msg: fetchErr })
+              ) : models.length ? (
+                <>
+                  已取回 {models.length} 个模型，<span className="font-semibold text-ok">连接正常 · {latency}ms</span>。
+                  {selected.length ? `常用的几个我已替${name}勾选好。` : "没有识别到常用模型，请勾选需要的几个。"}
+                </>
+              ) : (
+                copy.onboarding.step3Empty
+              )}
+      </>
+    );
+  // 第 1 步欢迎；第 2 步摊手引导、连接时思考；第 3 步取到模型是完成，取不到是报错
+  const mood: Mood =
+    step === 1 ? "welcome" : step === 2 ? (busy ? "thinking" : err ? "error" : "guide") : fetchErr || err ? "error" : busy ? "thinking" : "success";
+
   return (
-    <div className="flex min-h-dvh justify-center px-4 py-8 sm:items-center">
-      <div className="card w-full max-w-xl p-6 shadow-xl sm:p-8">
+    <div className="flex min-h-dvh justify-center px-4 py-6 sm:items-center sm:py-8">
+      <div className="w-full max-w-4xl">
+      <RinneScene
+        mood={mood}
+        size="md"
+        ly={44}
+        guideMobile
+        steady
+        mobfull
+        priority
+        testId="onboarding-scene"
+        link={
+          <RinneBubble tone={mood === "error" ? "bad" : mood === "success" ? "ok" : "normal"} title={`第 ${step} 步 / 共 4 步`}>
+            {say}
+          </RinneBubble>
+        }
+      >
+      <div className="card w-full p-6 shadow-xl sm:p-8">
         <div className="mb-5 flex items-center justify-between">
           <Brand small />
           <span className="text-xs text-muted">第 {step} 步 / 共 4 步</span>
@@ -192,18 +235,9 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
 
         {step === 1 && (
           <div>
-            <div className="flex flex-col items-center text-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/img/welcome.jpg" alt="棱音" className="h-40 w-40 rounded-[28px] object-cover shadow-lg ring-4 ring-white/60 dark:ring-white/5" />
-              <h1 className="mt-4 text-2xl font-bold">{copy.onboarding.step1Title}</h1>
+            <div className="mb-4">
+              <h1 className="text-2xl font-bold">{copy.onboarding.step1Title}</h1>
             </div>
-            <Say>
-              {pwMode === "env"
-                ? copy.onboarding.step1EnvSay
-                : pwMode === "set"
-                  ? copy.onboarding.step1DoneSay
-                  : fill(copy.onboarding.step1Say, { name })}
-            </Say>
             {pwMode === "none" ? (
               <form
                 onSubmit={(e) => {
@@ -250,10 +284,6 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
         {step === 2 && (
           <div>
             <h1 className="text-xl font-bold">{copy.onboarding.step2Title}</h1>
-            <Say>
-              {copy.onboarding.step2Say}
-              {existing > 0 && <> {name}已经接好 {existing} 条线路啦，也可以直接去聊天。</>}
-            </Say>
             <ProviderCards value={type} onChange={pickType} />
             <div className="mt-4">
               <label className="label" htmlFor="base">
@@ -319,18 +349,6 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
         {step === 3 && (
           <div>
             <h1 className="text-xl font-bold">{copy.onboarding.step3Title}</h1>
-            <Say>
-              {fetchErr ? (
-                fill(copy.onboarding.step3Fail, { msg: fetchErr })
-              ) : models.length ? (
-                <>
-                  取回 {models.length} 个模型，<span className="font-semibold text-ok">连接正常 · {latency}ms</span>。
-                  {selected.length ? `常用的我先帮${name}勾好啦！` : "没认出常用模型，挑几个要用的吧。"}
-                </>
-              ) : (
-                copy.onboarding.step3Empty
-              )}
-            </Say>
             {models.length > 12 && (
               <label className="mb-3 flex items-center gap-2 rounded-xl border border-rule bg-card px-3 py-1.5">
                 <Search size={14} className="text-muted" />
@@ -390,6 +408,8 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
             </div>
           </div>
         )}
+      </div>
+      </RinneScene>
       </div>
     </div>
   );

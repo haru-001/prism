@@ -106,6 +106,9 @@ export interface ChatMsg {
   error?: MsgError;
   imageMeta?: { prompt: string; size?: string; n?: number; quality?: string; refs?: string[] };
   pending?: boolean;
+  /** 并排对比：同一组回答的组号；alt=true 的回答不进入后续上下文 */
+  group?: string;
+  alt?: boolean;
   createdAt: number;
 }
 
@@ -151,6 +154,61 @@ export interface LogEntry {
   stream?: boolean;
   attempts: number;
   error?: string;
+  /** 用的哪个令牌（网页聊天是 web） */
+  tokenId?: string;
+  tokenName?: string;
+  /** 有没有存请求/响应详情 */
+  detail?: boolean;
+  /** 这条是重放哪条日志产生的 */
+  replayOf?: string;
+}
+
+/** 日志详情：完整的请求和响应（Key 和敏感头已打码，大内容已截断） */
+export interface LogDetail {
+  id: string;
+  at: number;
+  request: { method: string; path: string; headers: Record<string, string>; body: string };
+  response: { status: number; headers: Record<string, string>; body: string };
+  /** 请求体被截断过（或图片被替换成了占位）时不能原样重放 */
+  truncated: boolean;
+  replayOf?: string;
+}
+
+/** API 令牌 */
+export interface TokenRecord {
+  id: string;
+  name: string;
+  key: string;
+  enabled: boolean;
+  /** 能用的模型；空 = 不限。支持末尾 * 通配，如 gpt-4o* */
+  models?: string[];
+  /** 额度上限：按 token 总量或估算金额；不填 = 不限 */
+  quota?: { kind: "tokens" | "cost"; limit: number };
+  /** 过期时间（毫秒时间戳）；不填 = 永不过期 */
+  expiresAt?: number;
+  createdAt: number;
+}
+export type PublicToken = Omit<TokenRecord, "key"> & { key: string; used?: { tokens: number; cost: number } };
+
+/** 模型单价：每百万 token 的价格，按模型名匹配（支持末尾 * 通配） */
+export interface PriceRule {
+  pattern: string;
+  input: number;
+  output: number;
+  /** 每次请求固定价（生图模型常用） */
+  perRequest?: number;
+}
+export interface Pricing {
+  currency: string;
+  rules: PriceRule[];
+}
+
+/** 提示词预设 */
+export interface Preset {
+  id: string;
+  name: string;
+  system: string;
+  temperature?: number;
 }
 
 export interface Settings {
@@ -161,6 +219,12 @@ export interface Settings {
   defaultImageModel?: string;
   defaultSystem: string;
   temperature: number;
+  /** 棱音的服装（衣柜里八套之一） */
+  rinneOutfit?: "suit" | "gown" | "summer" | "home" | "trench" | "qipao" | "bridal" | "sport";
+  /** 换装动效：跟随系统 / 开 / 关 */
+  rinneMotion?: "system" | "on" | "off";
+  /** 是否在界面里显示棱音的立绘 */
+  rinneShow?: boolean;
 }
 
 export interface Onboarding {

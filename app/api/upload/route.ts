@@ -1,6 +1,7 @@
 import { guard } from "@/lib/server/auth";
 import { saveFile } from "@/lib/server/files";
 import { bad } from "@/lib/server/api";
+import { withDb } from "@/lib/server/dbguard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 const OK = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 /** 聊天附图 / 参考图上传。Vercel 函数请求体上限约 4.5MB，前端会先压缩 */
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   const g = await guard();
   if (g) return g;
   const fd = await req.formData().catch(() => null);
@@ -19,3 +20,6 @@ export async function POST(req: Request) {
   const url = await saveFile(Buffer.from(await f.arrayBuffer()), f.type, "uploads");
   return Response.json({ url });
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const POST = withDb(POSTHandler);

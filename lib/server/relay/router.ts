@@ -3,9 +3,12 @@ import type { Channel, IChatEvent, IChatRequest, IUsage, LogEntry, ModelGroup } 
 import { guessCaps } from "../../models";
 import { copy, fill } from "../../copy";
 import { addLog, listChannels, patchChannel } from "../store";
+import { defer } from "../defer";
+import type { ReqCtx } from "./capture";
 import { resolveImage } from "../files";
 import { RelayError, toRelayError } from "./errors";
 import { makeTarget, type Target } from "./target";
+import { isDbDown } from "../mysql";
 
 export const TIMEOUT_STREAK_LIMIT = 3;
 
@@ -41,8 +44,17 @@ export function buildCatalog(channels: Channel[], includeDisabled = true): Model
 
 /** 找出能提供该模型的线路，按优先级排序；同优先级随机打散 */
 export async function targetsFor(model: string, preferChannelId?: string): Promise<Target[]> {
+  const hits = pick(await listChannels(), model, preferChannelId);
+  // 内存缓存里找不到这个模型（或指定的渠道）时，直接读库再找一次：可能刚在别的实例上加了渠道或模型
+  if (!hits.length || (preferChannelId && !hits.some((t) => t.channel.id === preferChannelId))) {
+    return pick(await listChannels({ fresh: true }), model, preferChannelId);
+  }
+  return hits;
+}
+
+function pick(all: Channel[], model: string, preferChannelId?: string): Target[] {
   const name = model.replace(/^models\//, "");
-  const channels = (await listChannels()).filter((c) => c.enabled && !c.autoDisabled);
+  const channels = all.filter((c) => c.enabled && !c.autoDisabled);
   const hits: { ch: Channel; upstream: string; r: number }[] = [];
   for (const ch of channels) {
     const m = exposedModels(ch).find((x) => x.id === name);
@@ -119,7 +131,8 @@ export async function withFailover<T>(
     const t0 = Date.now();
     try {
       const value = await fn(t);
-      void markSuccess(t, Date.now() - t0).catch(() => {});
+      const took = Date.now() - t0;
+      defer(() => markSuccess(t, took), "更新线路状态");
       return { value, target: t, attempts: i + 1, notices, startedAt };
     } catch (e) {
       const err = toRelayError(e, t.channel.name);
@@ -164,7 +177,7 @@ export async function inlineImages(req: IChatRequest): Promise<IChatRequest> {
 /** 包一层事件流：结束时写请求日志 */
 export async function* withLogging(
   events: AsyncGenerator<IChatEvent>,
-  meta: { source: LogEntry["source"]; model: string; target: Target; attempts: number; startedAt: number; stream: boolean },
+  meta: { source: LogEntry["source"]; model: string; target: Target; attempts: number; startedAt: number; stream: boolean; ctx?: ReqCtx },
   onUsage?: (u: IUsage) => void,
 ): AsyncGenerator<IChatEvent> {
   let ttfb: number | undefined;
@@ -198,11 +211,13 @@ export async function* withLogging(
       stream: meta.stream,
       attempts: meta.attempts,
       error,
-    });
+    }, meta.ctx);
   }
 }
 
-export async function logFailure(source: LogEntry["source"], model: string, e: unknown, startedAt: number, stream?: boolean) {
+export async function logFailure(source: LogEntry["source"], model: string, e: unknown, startedAt: number, stream?: boolean, ctx?: ReqCtx) {
+  // 数据库连不上时日志也写不进去，不必再试
+  if (isDbDown(e)) return;
   const err = e as FailoverError;
   await addLog({
     source,
@@ -214,5 +229,5 @@ export async function logFailure(source: LogEntry["source"], model: string, e: u
     attempts: err.attempts ?? 1,
     stream,
     error: err?.message || String(e),
-  });
+  }, ctx);
 }

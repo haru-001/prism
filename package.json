@@ -9,7 +9,8 @@
     "test:mock": "node tests/mock.mjs",
     "test:api": "node tests/api-test.mjs",
     "test:mysql": "node tests/mysql-test.mjs",
-    "migrate": "node scripts/migrate-to-mysql.mjs"
+    "migrate": "node scripts/migrate-to-mysql.mjs",
+    "test:features": "node tests/features-test.mjs"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.2",

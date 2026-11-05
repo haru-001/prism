@@ -43,12 +43,15 @@ function StatusBadge({ ch }: { ch: PublicChannel }) {
 }
 
 export default function ChannelsPage() {
-  const { channels, refresh } = useApp();
+  const { channels, refresh, patchBoot } = useApp();
+  // 乐观更新：先在本地改列表，界面立刻变化；服务端确认后再在后台刷新一次（拿到模型目录等派生数据）
+  const patchChannels = (fn: (list: PublicChannel[]) => PublicChannel[]) => patchBoot((b) => ({ ...b, channels: fn(b.channels) }));
+  const bgRefresh = () => void refresh().catch(() => {});
   const [editing, setEditing] = useState<{ ch: PublicChannel | null; fetch?: boolean } | null>(null);
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [testingAll, setTestingAll] = useState(false);
 
-  async function test(ch: PublicChannel, quiet = false) {
+  async function test(ch: PublicChannel, quiet = false, batch = false) {
     setTesting((t) => ({ ...t, [ch.id]: true }));
     try {
       const r = await api<{ ok: boolean; latencyMs?: number; message?: string; via?: string }>(`/api/channels/${ch.id}/test`, { body: {} });
@@ -62,7 +65,8 @@ export default function ChannelsPage() {
       return false;
     } finally {
       setTesting((t) => ({ ...t, [ch.id]: false }));
-      await refresh();
+      // 全部测速时只在最后刷新一次（原来每条渠道测完都整页刷新一次）
+      if (!batch) bgRefresh();
     }
   }
 
@@ -71,29 +75,32 @@ export default function ChannelsPage() {
     let ok = 0;
     let bad = 0;
     const list = channels.filter((c) => c.enabled);
-    await Promise.all(list.map(async (c) => ((await test(c, true)) ? ok++ : bad++)));
+    await Promise.all(list.map(async (c) => ((await test(c, true, true)) ? ok++ : bad++)));
     setTestingAll(false);
-    toast(`测完啦：${ok} 条正常，${bad} 条有问题`, bad ? "err" : "ok");
+    bgRefresh();
+    toast(`检测完成：${ok} 条正常，${bad} 条有问题`, bad ? "err" : "ok");
   }
 
   async function setEnabled(ch: PublicChannel, enabled: boolean) {
+    patchChannels((l) => l.map((c) => (c.id === ch.id ? { ...c, enabled, ...(enabled ? { autoDisabled: false } : {}) } : c)));
     try {
       await api(`/api/channels/${ch.id}`, { method: "PATCH", body: { enabled } });
-      await refresh();
     } catch (e) {
       toast((e as Error).message, "err");
     }
+    bgRefresh();
   }
 
   async function remove(ch: PublicChannel) {
     if (!confirm(`删除渠道「${ch.name}」？它的 Key 和模型设置会一起删掉。`)) return;
+    patchChannels((l) => l.filter((c) => c.id !== ch.id));
     try {
       await api(`/api/channels/${ch.id}`, { method: "DELETE" });
       toast("已删除", "ok");
-      await refresh();
     } catch (e) {
       toast((e as Error).message, "err");
     }
+    bgRefresh();
   }
 
   return (
@@ -196,9 +203,10 @@ export default function ChannelsPage() {
         open={!!editing}
         channel={editing?.ch || null}
         autoFetch={editing?.fetch}
-        onClose={(changed) => {
+        onClose={(changed, saved) => {
           setEditing(null);
-          if (changed) void refresh();
+          if (saved) patchChannels((l) => (l.some((c) => c.id === saved.id) ? l.map((c) => (c.id === saved.id ? saved : c)) : [...l, saved]));
+          if (changed) bgRefresh();
         }}
       />
     </div>

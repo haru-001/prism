@@ -2,16 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Code2, Eye, HeartPulse, Menu, Palette } from "lucide-react";
-import type { ChatMsg, Conversation, ModelGroup } from "@/lib/types";
-import { api, readEvents, uid } from "@/lib/client/api";
+import { RinneScene } from "@/components/rinne/RinneScene";
+import { RinneBubble } from "@/components/rinne/RinneBubble";
+import { Check, Code2, Download, Eye, FileDown, HeartPulse, Menu, Palette, ScrollText } from "lucide-react";
+import type { ChatMsg, Conversation, ModelGroup, Preset } from "@/lib/types";
+import { api, readEvents, uid, notifyDbDown } from "@/lib/client/api";
+import { fetchConv, peekConv, putConv, takeInitial } from "@/lib/client/convCache";
 import { copy, fill } from "@/lib/copy";
 import { useApp } from "../AppContext";
 import { IdolAvatar } from "../Logo";
 import { toast } from "../ui";
 import { ModelPicker, type Picked } from "./ModelPicker";
 import { Composer, type ImageOpts } from "./Composer";
-import { Coach, MessageItem } from "./MessageItem";
+import { Coach, MessageItem, loadMarkdown } from "./MessageItem";
 
 function firstModel(catalog: ModelGroup[], wantImage: boolean, prefer?: string): Picked | undefined {
   const live = catalog.filter((g) => !g.disabled);
@@ -32,7 +35,7 @@ function Num({ n }: { n: number }) {
   return <span className="num shadow">{n}</span>;
 }
 
-export function ChatView({ id: initialId }: { id?: string }) {
+export function ChatView({ id: initialId, initial }: { id?: string; initial?: Promise<Conversation | null> }) {
   const app = useApp();
   const { catalog, settings, ready, seen, markTip, name, channels } = app;
 
@@ -52,6 +55,9 @@ export function ChatView({ id: initialId }: { id?: string }) {
   const [imageOpts, setImageOpts] = useState<ImageOpts>({ size: "1024x1024", n: 1, quality: "", refs: [] });
   const [streaming, setStreaming] = useState(false);
   const [firstImageTip, setFirstImageTip] = useState(false);
+  /** 并排对比：主模型之外再挑的模型 */
+  const [compare, setCompare] = useState<Picked[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -61,23 +67,56 @@ export function ChatView({ id: initialId }: { id?: string }) {
   const msgsRef = useRef<ChatMsg[]>([]);
   msgsRef.current = messages;
 
-  // 加载已有对话
+  // 空闲时预加载 Markdown 渲染模块（第一条回答出来时就不用再等它下载）
+  useEffect(() => {
+    const go = () => void loadMarkdown().catch(() => {});
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
+    if (initialId) go();
+    else if (w.requestIdleCallback) w.requestIdleCallback(go);
+    else setTimeout(go, 1500);
+  }, [initialId]);
+
+  // 加载已有对话：优先用本页缓存（立刻显示），再用服务端随页面一起发来的数据，最后才单独请求
   useEffect(() => {
     if (!initialId) return;
-    api<{ conversation: Conversation }>(`/api/conversations/${initialId}`)
-      .then(({ conversation: c }) => {
-        setMessages(c.messages);
-        setTitle(c.title);
-        setCreatedAt(c.createdAt);
-        setSystem(c.system || "");
-        if (c.temperature != null) setTemperature(c.temperature);
-        if (c.model) setChatModel((p) => p || { model: c.model! });
-        setLoaded(true);
-      })
-      .catch(() => {
-        setNotFound(true);
-        setLoaded(true);
-      });
+    let alive = true;
+    const apply = (c: Conversation) => {
+      setMessages(c.messages);
+      setTitle(c.title);
+      setCreatedAt(c.createdAt);
+      setSystem(c.system || "");
+      if (c.temperature != null) setTemperature(c.temperature);
+      if (c.model) setChatModel((p) => p || { model: c.model! });
+      setLoaded(true);
+    };
+    const cached = peekConv(initialId);
+    if (cached) apply(cached);
+    const fromServer = takeInitial(initial);
+    const p = fromServer
+      ? Promise.resolve(fromServer).then((c) => {
+          if (c) putConv(c);
+          return c;
+        })
+      : fetchConv(initialId);
+    p.then((c) => {
+      if (!alive) return;
+      if (!c) {
+        if (!cached) {
+          setNotFound(true);
+          setLoaded(true);
+        }
+        return;
+      }
+      if (!cached || (c.updatedAt || 0) > (cached.updatedAt || 0)) apply(c);
+    }).catch(() => {
+      if (!alive || cached) return;
+      setNotFound(true);
+      setLoaded(true);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialId]);
 
   // 默认模型
@@ -90,6 +129,21 @@ export function ChatView({ id: initialId }: { id?: string }) {
     });
     setImageModel((p) => p || firstModel(catalog, true, settings.defaultImageModel));
   }, [ready, catalog, settings.defaultModel, settings.defaultImageModel, settings.temperature, initialId]);
+
+  // 新对话的空白页：空闲时在后台读一次最新的预设（不挡首屏）。
+  // 页面可能是另一个实例渲染的，它缓存里的预设可能还没包含刚在设置页加的那条。
+  const { revalidatePresets } = app;
+  const emptyPage = !initialId && !messages.length;
+  useEffect(() => {
+    if (!emptyPage) return;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number; cancelIdleCallback?: (id: number) => void };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(() => void revalidatePresets());
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = setTimeout(() => void revalidatePresets(), 300);
+    return () => clearTimeout(t);
+  }, [emptyPage, revalidatePresets]);
 
   // 自动滚到底
   useEffect(() => {
@@ -123,12 +177,14 @@ export function ChatView({ id: initialId }: { id?: string }) {
         createdAt,
         updatedAt: Date.now(),
       };
+      // 先更新左栏和本页缓存（乐观更新），再写服务端
+      putConv(conv);
+      app.setConversations((list) => {
+        const meta = { id, title: t, hasImage: conv.hasImage, model: conv.model, createdAt, updatedAt: conv.updatedAt };
+        return [meta, ...list.filter((c) => c.id !== id)];
+      });
       try {
         await api(`/api/conversations/${id}`, { method: "PUT", body: conv });
-        app.setConversations((list) => {
-          const meta = { id, title: t, hasImage: conv.hasImage, model: conv.model, createdAt, updatedAt: Date.now() };
-          return [meta, ...list.filter((c) => c.id !== id)];
-        });
       } catch (e) {
         toast("对话保存失败：" + (e as Error).message, "err");
       }
@@ -156,15 +212,40 @@ export function ChatView({ id: initialId }: { id?: string }) {
   }
 
   // ===== 对话 =====
-  async function runChat(history: ChatMsg[], conv: { id: string; t: string }) {
+  /**
+   * 发一轮对话。models 不传时：当前模型 + 并排选中的模型。
+   * 多个模型时各自独立流式输出，同一组回答带同一个 group；第一个默认「选用」，其余 alt=true（不进后续上下文）。
+   */
+  async function runChat(history: ChatMsg[], conv: { id: string; t: string }, models?: Picked[]) {
     if (!chatModel) return toast(copy.chat.noModel, "err");
-    const aid = uid();
-    const assistant: ChatMsg = { id: aid, role: "assistant", text: "", model: chatModel.model, mode: "chat", pending: true, createdAt: Date.now() };
-    setMessages([...history, assistant]);
+    const same = (a: Picked, b: Picked) => a.model === b.model && (a.channelId || "") === (b.channelId || "");
+    const list = (models || [chatModel, ...compare]).filter((x, i, arr) => arr.findIndex((y) => same(x, y)) === i).slice(0, 4);
+    const group = list.length > 1 ? uid() : undefined;
+    const assistants: ChatMsg[] = list.map((pk, i) => ({
+      id: uid(),
+      role: "assistant",
+      text: "",
+      model: pk.model,
+      mode: "chat",
+      pending: true,
+      createdAt: Date.now(),
+      ...(group ? { group, alt: i > 0 } : {}),
+    }));
+    setMessages([...history, ...assistants]);
     setStreaming(true);
     stickRef.current = true;
     const ac = new AbortController();
     abortRef.current = ac;
+    try {
+      await Promise.all(assistants.map((a, i) => streamOne(a.id, list[i], history, ac.signal, group)));
+    } finally {
+      setStreaming(false);
+      abortRef.current = null;
+      setTimeout(() => void save(msgsRef.current, conv.id, conv.t), 0);
+    }
+  }
+
+  async function streamOne(aid: string, pk: Picked, history: ChatMsg[], signal: AbortSignal, group?: string) {
     let text = "";
     let reasoning = "";
     let dirty = false;
@@ -178,11 +259,12 @@ export function ChatView({ id: initialId }: { id?: string }) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: chatModel.model, channelId: chatModel.channelId, messages: history, system, temperature }),
-        signal: ac.signal,
+        body: JSON.stringify({ model: pk.model, channelId: pk.channelId, messages: history, system, temperature }),
+        signal,
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
+        notifyDbDown(res.status, j);
         throw new Error(j.error || `请求失败（${res.status}）`);
       }
       await readEvents(res, (ev, data) => {
@@ -196,7 +278,8 @@ export function ChatView({ id: initialId }: { id?: string }) {
         } else if (ev === "notice") {
           const n: ChatMsg = { id: uid(), role: "notice", text: d.text as string, createdAt: Date.now() };
           setMessages((list) => {
-            const i = list.findIndex((m) => m.id === aid);
+            // 并排时把提示放在整组前面，不打断并排
+            const i = group ? list.findIndex((m) => m.group === group) : list.findIndex((m) => m.id === aid);
             return i < 0 ? [...list, n] : [...list.slice(0, i), n, ...list.slice(i)];
           });
         } else if (ev === "meta") patch(aid, { channel: d.channel as string });
@@ -212,10 +295,21 @@ export function ChatView({ id: initialId }: { id?: string }) {
       dirty = true;
       flush();
       patch(aid, { pending: false });
-      setStreaming(false);
-      abortRef.current = null;
-      setTimeout(() => void save(msgsRef.current, conv.id, conv.t), 0);
     }
+  }
+
+  /** 并排回答里选一个作为后续上下文 */
+  function choose(group: string, id: string) {
+    if (streaming) return;
+    const next = msgsRef.current.map((m) => (m.group === group ? { ...m, alt: m.id !== id } : m));
+    setMessages(next);
+    void save(next, convId, title);
+  }
+
+  function applyPreset(p: Preset) {
+    setSystem(p.system);
+    if (p.temperature != null) setTemperature(p.temperature);
+    toast(`已套用预设「${p.name}」`, "ok");
   }
 
   // ===== 生图 =====
@@ -277,7 +371,7 @@ export function ChatView({ id: initialId }: { id?: string }) {
     if (/^\/(图|img|image)\s*/i.test(text)) {
       text = text.replace(/^\/(图|img|image)\s*/i, "").trim();
       m = "image";
-      if (!text) return toast("在 /图 后面写上画面描述吧～");
+      if (!text) return toast("请在 /图 后面写上画面描述");
     }
     if (showIntro) markTip("chat-intro");
     const conv = ensureConv(text);
@@ -301,7 +395,11 @@ export function ChatView({ id: initialId }: { id?: string }) {
     let i = list.length - 1;
     while (i >= 0 && list[i].role !== "user") i--;
     if (i < 0) return;
-    void runChat(list.slice(0, i + 1), { id: convId, t: title });
+    // 上一轮是并排回答：用同一组模型重来；否则只用当前模型
+    const last = list.slice(i + 1).filter((m) => m.role === "assistant");
+    const models: Picked[] | undefined =
+      last.length > 1 && last[0].group ? last.map((m) => ({ model: m.model || "" })).filter((x) => x.model) : chatModel ? [chatModel] : undefined;
+    void runChat(list.slice(0, i + 1), { id: convId, t: title }, models);
   }
 
   function regenImage(m: ChatMsg) {
@@ -353,10 +451,59 @@ export function ChatView({ id: initialId }: { id?: string }) {
       textRef.current?.focus();
     } else if (kind === "vision") {
       setMode("chat");
+      const v = visionModel();
+      if (v && !hasCap(chatModel, "vision")) setChatModel(v);
       setInput("帮我看看这张图里有什么");
       fileRef.current?.click();
     } else if (kind === "health") void healthCheck();
   }
+
+  function hasCap(pk: Picked | undefined, cap: "vision") {
+    if (!pk) return false;
+    for (const g of catalog) {
+      if (pk.channelId && g.channelId !== pk.channelId) continue;
+      const m = g.models.find((x) => x.id === pk.model);
+      if (m) return m.caps.includes(cap);
+    }
+    return false;
+  }
+  function visionModel(): Picked | undefined {
+    for (const g of catalog) {
+      if (g.disabled) continue;
+      const m = g.models.find((x) => x.caps.includes("vision"));
+      if (m) return { model: m.id, channelId: g.channelId };
+    }
+    return undefined;
+  }
+  // 附了图，但当前（或并排里的）模型没有「识图」标签
+  const noVision = mode === "chat" && attachments.length > 0 ? [chatModel, ...compare].filter((x): x is Picked => !!x && !hasCap(x, "vision")) : [];
+  const suggestVision = noVision.length ? visionModel() : undefined;
+  const visionNotice = noVision.length ? (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-warn/10 px-3 py-2 text-xs text-ink/80">
+      <IdolAvatar size={18} />
+      <span className="min-w-0 flex-1">
+        {fill(copy.chat.noVision, { model: noVision.map((x) => x.model).join("、") })}
+      </span>
+      {suggestVision && !hasCap(chatModel, "vision") && (
+        <button className="btn-ghost btn-sm" onClick={() => setChatModel(suggestVision)}>
+          换成 {suggestVision.model}
+        </button>
+      )}
+    </div>
+  ) : null;
+
+  // 并排回答：相邻、同组的回答合成一行
+  const rows = useMemo(() => {
+    const out: (ChatMsg | ChatMsg[])[] = [];
+    for (const m of messages) {
+      const last = out[out.length - 1];
+      if (m.role === "assistant" && m.group) {
+        if (Array.isArray(last) && last[0].group === m.group) last.push(m);
+        else out.push([m]);
+      } else out.push(m);
+    }
+    return out;
+  }, [messages]);
 
   const lastAssistantIdx = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "assistant") return i;
@@ -400,6 +547,43 @@ export function ChatView({ id: initialId }: { id?: string }) {
           }}
         />
         <div className="ml-auto hidden truncate text-xs text-muted sm:block">{title}</div>
+        {convId && messages.length > 0 && (
+          <div className="relative ml-auto sm:ml-0">
+            <button
+              className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink disabled:opacity-40"
+              title="导出对话"
+              aria-label="导出对话"
+              disabled={streaming}
+              onClick={() => setExportOpen((v) => !v)}
+            >
+              <Download size={18} />
+            </button>
+            {exportOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setExportOpen(false)} />
+                <div className="card absolute right-0 top-full z-40 mt-1 w-44 p-1.5 shadow-2xl">
+                  <div className="px-2 py-1 text-[11px] text-muted">导出这个对话</div>
+                  {(
+                    [
+                      ["md", "Markdown（.md）"],
+                      ["json", "JSON（.json）"],
+                    ] as const
+                  ).map(([f, l]) => (
+                    <a
+                      key={f}
+                      href={`/api/conversations/${convId}/export?format=${f}`}
+                      download
+                      className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-soft"
+                      onClick={() => setTimeout(() => setExportOpen(false), 0)}
+                    >
+                      <FileDown size={14} /> {l}
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </header>
 
       {/* 消息流 */}
@@ -413,21 +597,49 @@ export function ChatView({ id: initialId }: { id?: string }) {
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 md:px-6">
           {loaded && !messages.length && (
-            <div className="flex flex-col items-center pt-6 text-center md:pt-12">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/img/welcome.jpg" alt="棱音" className="mb-5 h-40 w-40 rounded-[28px] object-cover shadow-lg ring-4 ring-white/60 dark:ring-white/5 md:h-48 md:w-48" />
+            <div className="pt-2 md:pt-6" data-testid="chat-empty">
               {ready && !hasModels ? (
-                <>
-                  <h2 className="mb-2 text-xl font-bold">嗨，我是棱音！</h2>
-                  <p className="mb-5 max-w-sm text-sm text-muted">{fill(copy.chat.emptyNoChannel, { name })}</p>
-                  <Link href="/channels" className="btn-primary">
-                    去接入线路
-                  </Link>
-                </>
+                <RinneScene
+                  mood="guide"
+                  size="md"
+                  ly={34}
+                  priority
+                  testId="chat-empty-scene"
+                  link={
+                    <RinneBubble title="我是棱音，您的专属秘书。">
+                      <p className="mb-3">{fill(copy.chat.emptyNoChannel, { name })}</p>
+                      <Link href="/channels" className="btn-primary btn-sm">
+                        去接入线路
+                      </Link>
+                    </RinneBubble>
+                  }
+                />
               ) : (
-                <>
-                  <h2 className="mb-6 text-xl font-bold md:text-2xl">{fill(copy.chat.emptyTitle, { name })}</h2>
-                  <div className="grid w-full max-w-xl grid-cols-2 gap-2.5">
+                <RinneScene
+                  mood="welcome"
+                  size="md"
+                  ly={30}
+                  priority
+                  testId="chat-empty-scene"
+                  link={<RinneBubble>{fill(copy.chat.emptyTitle, { name })}</RinneBubble>}
+                >
+                  <div className="flex w-full flex-col items-center">
+                  {app.presets.length > 0 && (
+                    <div className="mb-4 flex w-full max-w-2xl flex-wrap items-center justify-center gap-1.5" data-testid="preset-row">
+                      <span className="mr-1 text-xs text-muted">{copy.chat.presetPick}</span>
+                      {app.presets.slice(0, 8).map((ps) => (
+                        <button
+                          key={ps.id}
+                          className={`chip ${system === ps.system ? "!border-acc !text-acc-ink" : ""}`}
+                          onClick={() => applyPreset(ps)}
+                          title={ps.system.slice(0, 120)}
+                        >
+                          <ScrollText size={12} /> {ps.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid w-full max-w-2xl grid-cols-2 gap-2.5">
                     {copy.suggestions.map((s) => {
                       const Icon = ICONS[s.kind];
                       return (
@@ -443,24 +655,62 @@ export function ChatView({ id: initialId }: { id?: string }) {
                       );
                     })}
                   </div>
-                </>
+                  </div>
+                </RinneScene>
               )}
             </div>
           )}
 
-          {messages.map((m, i) => (
-            <MessageItem
-              key={m.id}
-              m={m}
-              isLast={i === lastAssistantIdx && i >= messages.length - 2}
-              streaming={streaming}
-              onRegenerate={!streaming ? regenerate : undefined}
-              onEditImage={editImage}
-              onRegenImage={!streaming ? () => regenImage(m) : undefined}
-              firstErrorTip={m.id === firstErrorId}
-              onFirstErrorSeen={() => markTip("first-error")}
-            />
-          ))}
+          {rows.map((row) => {
+            if (Array.isArray(row)) {
+              const isLastGroup = row.some((m) => messages.indexOf(m) === lastAssistantIdx);
+              return (
+                <div key={row[0].group} className="-mx-1 overflow-x-auto pb-1" data-testid="compare-row">
+                  <div className="grid gap-3 px-1" style={{ gridTemplateColumns: `repeat(${row.length}, minmax(250px, 1fr))` }}>
+                    {row.map((m) => (
+                      <div key={m.id} className={`card min-w-0 p-3 transition ${m.alt ? "opacity-80" : "ring-2 ring-acc/50"}`}>
+                        <div className="mb-2 flex items-center justify-end gap-2">
+                          {m.alt ? (
+                            <button className="btn-ghost btn-sm" disabled={streaming || m.pending} onClick={() => choose(m.group!, m.id)}>
+                              选用这个
+                            </button>
+                          ) : (
+                            <span className="pill !m-0 !py-0.5 text-[11px]">
+                              <Check size={12} /> 已选用
+                            </span>
+                          )}
+                        </div>
+                        <MessageItem
+                          m={m}
+                          isLast={isLastGroup && !m.alt}
+                          streaming={streaming}
+                          onRegenerate={!streaming ? regenerate : undefined}
+                          firstErrorTip={m.id === firstErrorId}
+                          onFirstErrorSeen={() => markTip("first-error")}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {isLastGroup && !streaming && <p className="mt-1.5 px-1 text-[11px] text-muted">{copy.chat.compareHint}</p>}
+                </div>
+              );
+            }
+            const m = row;
+            const i = messages.indexOf(m);
+            return (
+              <MessageItem
+                key={m.id}
+                m={m}
+                isLast={i === lastAssistantIdx && i >= messages.length - 2}
+                streaming={streaming}
+                onRegenerate={!streaming ? regenerate : undefined}
+                onEditImage={editImage}
+                onRegenImage={!streaming ? () => regenImage(m) : undefined}
+                firstErrorTip={m.id === firstErrorId}
+                onFirstErrorSeen={() => markTip("first-error")}
+              />
+            );
+          })}
 
           {firstImageTip && (
             <Coach
@@ -513,6 +763,13 @@ export function ChatView({ id: initialId }: { id?: string }) {
           showNums={showIntro}
           fileInputRef={fileRef}
           textRef={textRef}
+          presets={app.presets}
+          onApplyPreset={applyPreset}
+          catalog={catalog}
+          primary={chatModel}
+          compare={compare}
+          setCompare={setCompare}
+          visionNotice={visionNotice}
         />
         <p className="mt-1.5 hidden text-center text-[11px] text-muted sm:block">{copy.chat.hint}</p>
       </div>

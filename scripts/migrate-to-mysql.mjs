@@ -61,6 +61,27 @@ const SCHEMA = [
     PRIMARY KEY (id),
     KEY idx_created (created_at)
   ) ENGINE=InnoDB`,
+  // 用量统计：按「天 × 模型 × 渠道 × 令牌」聚合，一年也就几千行，1GB 免费档完全放得下
+  `CREATE TABLE IF NOT EXISTS prism_usage (
+    day CHAR(10) CHARACTER SET ascii NOT NULL,
+    model VARCHAR(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    channel VARCHAR(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+    token VARCHAR(64) CHARACTER SET ascii NOT NULL,
+    requests INT NOT NULL DEFAULT 0,
+    fails INT NOT NULL DEFAULT 0,
+    in_tok BIGINT NOT NULL DEFAULT 0,
+    out_tok BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, model, channel, token),
+    KEY idx_token (token)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`,
+  // 日志详情：和日志一样只留最近 500 条，单条已截断控制在几十 KB 内
+  `CREATE TABLE IF NOT EXISTS prism_logd (
+    seq BIGINT NOT NULL AUTO_INCREMENT,
+    id VARCHAR(40) CHARACTER SET ascii NOT NULL,
+    v MEDIUMTEXT NOT NULL,
+    PRIMARY KEY (seq),
+    UNIQUE KEY uk_id (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin`,
 ];
 
 function die(msg) {

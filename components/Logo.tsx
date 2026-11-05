@@ -1,3 +1,8 @@
+"use client";
+
+import { avatarSrc, type Mood } from "@/lib/rinne";
+import { useRinne } from "@/components/rinne/RinneProvider";
+
 export function PrismLogo({ size = 32, className = "" }: { size?: number; className?: string }) {
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} className={className} aria-label="Prism">
@@ -20,16 +25,21 @@ export function Brand({ small = false }: { small?: boolean }) {
   );
 }
 
-/** 棱音头像 */
-export function IdolAvatar({ size = 28, className = "" }: { size?: number; className?: string }) {
+/** 棱音头像：跟着当前服装和状态，64/128 两档，同域加载 */
+export function IdolAvatar({ size = 28, mood = "welcome", className = "" }: { size?: number; mood?: Mood; className?: string }) {
+  const { outfit } = useRinne();
+  const a = avatarSrc(outfit, mood);
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={size > 96 ? "/img/idol.jpg" : "/img/idol-128.jpg"}
+      src={a.src}
+      srcSet={a.srcSet}
       alt="棱音"
       width={size}
       height={size}
-      className={`shrink-0 rounded-full object-cover ring-2 ring-white/70 dark:ring-white/10 ${className}`}
+      loading="lazy"
+      decoding="async"
+      className={`shrink-0 rounded-full bg-[#d8d8da] object-cover ring-2 ring-white/70 dark:ring-white/10 ${className}`}
       style={{ width: size, height: size }}
     />
   );

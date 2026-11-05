@@ -4,18 +4,19 @@ import { encrypt, maskKey, randomId } from "@/lib/server/crypto";
 import { bad, readJSON, toPublic } from "@/lib/server/api";
 import { channelTypeInfo, normalizeBaseUrl } from "@/lib/models";
 import type { Channel, ChannelType } from "@/lib/types";
+import { withDb } from "@/lib/server/dbguard";
 
 export const dynamic = "force-dynamic";
 
 const TYPES: ChannelType[] = ["openai", "claude", "gemini", "azure", "compatible"];
 
-export async function GET() {
+async function GETHandler() {
   const g = await guard();
   if (g) return g;
   return Response.json({ channels: (await listChannels()).map(toPublic) });
 }
 
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   const g = await guard();
   if (g) return g;
   const b = await readJSON<Partial<Channel> & { key?: string }>(req);
@@ -28,7 +29,8 @@ export async function POST(req: Request) {
   if (/你的资源名/.test(baseUrl)) return bad("请把 Azure 地址里的「你的资源名」换成真实资源名");
   const key = (b.key || "").trim();
   if (!key) return bad("请填写 API Key");
-  const list = await listChannels();
+  // 只读一次库（拿最新列表算默认名字，同一份列表直接用来写回）
+  const list = await listChannels({ fresh: true });
   const now = Date.now();
   const ch: Channel = {
     id: randomId(10),
@@ -49,6 +51,10 @@ export async function POST(req: Request) {
     createdAt: now,
     updatedAt: now,
   };
-  await upsertChannel(ch);
+  await upsertChannel(ch, list);
   return Response.json({ channel: toPublic(ch) });
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const GET = withDb(GETHandler);
+export const POST = withDb(POSTHandler);

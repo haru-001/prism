@@ -36,7 +36,8 @@ export function ChannelEditor({
   open: boolean;
   channel: PublicChannel | null; // null = 新建
   autoFetch?: boolean;
-  onClose: (changed: boolean) => void;
+  /** saved：刚保存好的渠道（父组件先用它乐观更新列表） */
+  onClose: (changed: boolean, saved?: PublicChannel) => void;
 }) {
   const [id, setId] = useState<string | null>(null);
   const [type, setType] = useState<ChannelType>("openai");
@@ -59,6 +60,8 @@ export function ChannelEditor({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const changed = useRef(false);
+  /** 服务端上已保存的基本信息（用来判断「获取模型」前要不要先存一次） */
+  const savedBasics = useRef("");
   const modelsRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<string[]>([]);
   selectedRef.current = models;
@@ -86,7 +89,16 @@ export function ChannelEditor({
       setModels(channel.models);
       setAliases(Object.entries(channel.mapping || {}).map(([alias, upstream]) => ({ alias, upstream })));
       setCaps(channel.caps || {});
+      const b: Record<string, unknown> = {
+        name: channel.name.trim(),
+        baseUrl: channel.baseUrl.trim(),
+        priority: Number(channel.priority) || 0,
+        timeoutMs: Math.max(5, Math.round((channel.timeoutMs || 60000) / 1000)) * 1000,
+      };
+      if (channel.type === "azure") b.apiVersion = (channel.apiVersion || "2024-10-21").trim();
+      savedBasics.current = JSON.stringify(b);
     } else {
+      savedBasics.current = "";
       setId(null);
       setType("openai");
       setName("");
@@ -138,7 +150,12 @@ export function ChannelEditor({
   async function ensureSaved(): Promise<string> {
     if (!baseUrl.trim()) throw new Error("请填写 Base URL");
     if (id) {
+      // 基本信息没改过就不用先存一次，直接去获取模型（少一个来回）
+      const b = JSON.stringify(basics());
+      if (b === savedBasics.current) return id;
       await api(`/api/channels/${id}`, { method: "PATCH", body: basics() });
+      savedBasics.current = JSON.stringify({ ...basics(), key: undefined });
+      changed.current = true;
       if (key.trim()) {
         setKeyHint("已更新");
         setKey("");
@@ -149,6 +166,7 @@ export function ChannelEditor({
     const r = await api<{ channel: PublicChannel }>("/api/channels", { body: { ...basics(), type } });
     setId(r.channel.id);
     setName(r.channel.name);
+    savedBasics.current = JSON.stringify({ ...basics(), name: r.channel.name, key: undefined });
     setKeyHint(r.channel.keyHint);
     setKey("");
     changed.current = true;
@@ -188,14 +206,15 @@ export function ChannelEditor({
       const used = new Set([...models, ...Object.keys(map), ...Object.values(map)]);
       const capsOut = Object.fromEntries(Object.entries(caps).filter(([m]) => used.has(m)));
       const body = { ...basics(), models, allModels, mapping: map, caps: capsOut };
-      if (id) await api(`/api/channels/${id}`, { method: "PATCH", body });
+      let r: { channel: PublicChannel };
+      if (id) r = await api<{ channel: PublicChannel }>(`/api/channels/${id}`, { method: "PATCH", body });
       else {
         if (!key.trim()) throw new Error("请填写 API Key");
-        await api("/api/channels", { body: { ...body, type } });
+        r = await api<{ channel: PublicChannel }>("/api/channels", { body: { ...body, type } });
       }
       changed.current = true;
       toast(id ? "渠道已保存" : "渠道已添加", "ok");
-      onClose(true);
+      onClose(true, r.channel);
     } catch (e) {
       setErr((e as Error).message);
     } finally {

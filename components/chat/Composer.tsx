@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ImagePlus, Loader2, MessageSquare, Paperclip, Palette, Square, Thermometer, X, ScrollText } from "lucide-react";
+import { ArrowUp, Columns3, Check, Eye, ImagePlus, Loader2, MessageSquare, Paperclip, Palette, Square, Thermometer, X, ScrollText, Settings2 } from "lucide-react";
+import Link from "next/link";
+import type { ModelGroup, Preset } from "@/lib/types";
+import type { Picked } from "./ModelPicker";
 import { uploadImage } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
 import { toast } from "../ui";
+import { imgSrc } from "@/lib/client/thumb";
 
 export interface ImageOpts {
   size: string;
@@ -49,9 +53,21 @@ export function Composer(p: {
   showNums: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   textRef: React.RefObject<HTMLTextAreaElement | null>;
+  /** 提示词预设 */
+  presets?: Preset[];
+  onApplyPreset?: (p: Preset) => void;
+  /** 并排对比：主模型之外再挑最多 3 个 */
+  catalog?: ModelGroup[];
+  primary?: Picked;
+  compare?: Picked[];
+  setCompare?: (f: (c: Picked[]) => Picked[]) => void;
+  /** 附了图但当前模型不支持识图时的提示 */
+  visionNotice?: React.ReactNode;
 }) {
   const [uploading, setUploading] = useState(0);
-  const [pop, setPop] = useState<"" | "system" | "temp">("");
+  const [pop, setPop] = useState<"" | "system" | "temp" | "compare">("");
+  const compare = p.compare || [];
+  const sameModel = (a: Picked, b?: Picked) => !!b && a.model === b.model && (a.channelId || "") === (b.channelId || "");
   const [drag, setDrag] = useState(false);
   const isImage = p.mode === "image";
   const popRef = useRef<HTMLDivElement>(null);
@@ -185,6 +201,23 @@ export function Composer(p: {
               </button>
               {pop === "system" && (
                 <div className="card absolute bottom-full left-0 z-30 mb-2 w-[min(86vw,360px)] p-3 shadow-2xl">
+                  {!!p.presets?.length && (
+                    <>
+                      <div className="label">套用预设</div>
+                      <div className="mb-2.5 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                        {p.presets.map((ps) => (
+                          <button
+                            key={ps.id}
+                            className={`chip ${p.system === ps.system ? "!border-acc !text-acc-ink" : ""}`}
+                            onClick={() => p.onApplyPreset?.(ps)}
+                            title={ps.system.slice(0, 120)}
+                          >
+                            {ps.name}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                   <div className="label">本对话的系统提示词</div>
                   <textarea
                     className="input min-h-28"
@@ -192,6 +225,9 @@ export function Composer(p: {
                     placeholder="比如：你是一位严谨的代码审查员…"
                     onChange={(e) => p.setSystem(e.target.value)}
                   />
+                  <Link href="/settings#presets" className="mt-2 inline-flex items-center gap-1 text-xs text-muted hover:text-acc-ink">
+                    <Settings2 size={12} /> 管理提示词预设
+                  </Link>
                 </div>
               )}
             </div>
@@ -214,16 +250,79 @@ export function Composer(p: {
                 </div>
               )}
             </div>
+            {p.setCompare && (
+              <div className="relative">
+                <button
+                  className={`chip ${compare.length ? "!border-acc !text-acc-ink" : ""}`}
+                  onClick={() => setPop(pop === "compare" ? "" : "compare")}
+                  title="同一个问题让多个模型并排回答"
+                >
+                  <Columns3 size={13} /> 并排{compare.length ? ` · ${compare.length + 1} 个模型` : ""}
+                </button>
+                {pop === "compare" && (
+                  <div className="card absolute bottom-full right-0 z-30 mb-2 w-[min(86vw,340px)] p-3 shadow-2xl sm:left-0 sm:right-auto">
+                    <div className="label">再挑最多 3 个模型，和当前模型并排回答</div>
+                    <div className="scroll-thin max-h-64 overflow-y-auto pr-1">
+                      {(p.catalog || [])
+                        .filter((g) => !g.disabled)
+                        .map((g) => {
+                          const models = g.models.filter((m) => !m.caps.includes("image"));
+                          if (!models.length) return null;
+                          return (
+                            <div key={g.channelId} className="mb-2">
+                              <div className="mb-1 text-[11px] font-semibold text-muted">{g.channelName}</div>
+                              {models.map((m) => {
+                                const it = { model: m.id, channelId: g.channelId };
+                                const isPrimary = sameModel(it, p.primary);
+                                const on = isPrimary || compare.some((c) => sameModel(c, it));
+                                const full = !on && compare.length >= 3;
+                                return (
+                                  <button
+                                    key={m.id}
+                                    data-testid="compare-option"
+                                    disabled={isPrimary || full}
+                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-soft disabled:opacity-50"
+                                    onClick={() =>
+                                      p.setCompare!((c) => (c.some((x) => sameModel(x, it)) ? c.filter((x) => !sameModel(x, it)) : [...c, it].slice(0, 3)))
+                                    }
+                                  >
+                                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? "border-acc bg-acc text-white" : "border-rule"}`}>
+                                      {on && <Check size={11} />}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate">{m.id}</span>
+                                    {m.caps.includes("vision") && <Eye size={12} className="shrink-0 text-muted" aria-label="识图" />}
+                                    {isPrimary && <span className="text-[11px] text-muted">当前</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-muted">{compare.length ? `已选 ${compare.length} 个` : "没选就是普通单模型对话"}</span>
+                      {compare.length > 0 && (
+                        <button className="text-xs font-semibold text-acc-ink" onClick={() => p.setCompare!(() => [])}>
+                          清空
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
+
+      {!isImage && p.visionNotice && thumbs.length > 0 && <div className="mb-2">{p.visionNotice}</div>}
 
       {(thumbs.length > 0 || uploading > 0) && (
         <div className="mb-2 flex flex-wrap gap-2">
           {thumbs.map((u) => (
             <div key={u} className="relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={u} alt="" className="h-16 w-16 rounded-lg border border-rule object-cover" />
+              <img src={imgSrc(u)} alt="" className="h-16 w-16 rounded-lg border border-rule object-cover" />
               <button className="absolute -right-1.5 -top-1.5 rounded-full bg-ink p-0.5 text-ground" onClick={() => removeThumb(u)} aria-label="移除">
                 <X size={12} />
               </button>

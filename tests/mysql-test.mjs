@@ -62,7 +62,7 @@ const noisePng = (w, h) => sharp(crypto.randomBytes(w * h * 3), { raw: { width: 
 console.log("\n[1] 登录失败计数");
 let r = await ui("/api/auth/setup", { method: "POST", body: { password: "test1234" } });
 check("设密码成功", r.status === 200, r);
-check("自动建好四张表", (await sql("SHOW TABLES LIKE 'prism\\_%'")).length === 4);
+check("自动建好六张表（含用量统计和日志详情）", (await sql("SHOW TABLES LIKE 'prism\\_%'")).length === 6);
 const saved = cookie;
 cookie = "";
 for (let i = 0; i < 10; i++) await ui("/api/auth/login", { method: "POST", body: { password: "wrong" } });
@@ -82,7 +82,7 @@ if (!cookie) cookie = saved;
 console.log("\n[2] 图片压缩");
 const small = await noisePng(32, 32);
 r = await upload(small, "image/png", "s.png");
-check("小图（<200KB）原样保存为 PNG", r.status === 200 && r.body.url?.endsWith(".png"), r.body);
+check("小图（<200KB）原样保存为 PNG", r.status === 200 && r.body.url?.split("?")[0].endsWith(".png"), r.body);
 let f = await fetch(APP + r.body.url);
 let b = Buffer.from(await f.arrayBuffer());
 check("小图内容不变", b.equals(small), [b.length, small.length]);
@@ -93,7 +93,7 @@ f = await fetch(APP + r.body.url);
 b = Buffer.from(await f.arrayBuffer());
 check(
   `大图（${(big.length / 1024).toFixed(0)}KB PNG）压成 WebP 且不超过 800KB（实际 ${(b.length / 1024).toFixed(0)}KB）`,
-  r.body.url?.endsWith(".webp") && f.headers.get("content-type") === "image/webp" && b.length <= 800 * 1024,
+  r.body.url?.split("?")[0].endsWith(".webp") && f.headers.get("content-type") === "image/webp" && b.length <= 800 * 1024,
   r.body,
 );
 const meta = await sharp(b).metadata();
@@ -113,7 +113,7 @@ for (let i = 0; i < 2; i++) await ui("/api/images", { method: "POST", body: { mo
 r = await ui("/api/gallery");
 const items = r.body.items || r.body.gallery || r.body;
 check("图库里有 2 张生成的图", Array.isArray(items) && items.length === 2, r.body);
-const victim = items[0].url.slice("/api/files/".length).split(".")[0];
+const victim = items[0].url.split("?")[0].slice("/api/files/".length).split(".")[0];
 await sql("DELETE FROM prism_files WHERE id = ?", [victim]);
 r = await ui("/api/gallery");
 const items2 = r.body.items || r.body.gallery || r.body;
@@ -129,11 +129,23 @@ const one = () =>
     body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi " + sent++ }] }),
   }).then((x) => x.text());
 for (let i = 0; i < 106; i++) await Promise.all([one(), one(), one(), one(), one()]);
-const [{ c }] = await sql("SELECT COUNT(*) c FROM prism_list WHERE k = 'prism:logs'");
+// 日志改成后台异步写入：先读一次日志接口（它会等本实例的后台写入落库），再数库里的行数
 r = await ui("/api/logs");
+const [{ c }] = await sql("SELECT COUNT(*) c FROM prism_list WHERE k = 'prism:logs'");
 const logs = r.body.logs || r.body.items || r.body;
 check(`发了 ${sent} 个请求，数据库里留 ${c} 条`, sent === 530 && Number(c) === 500, { sent, c });
 check("日志接口返回 500 条，最新的在前", Array.isArray(logs) && logs.length === 500 && logs[0].at >= logs[499].at, Array.isArray(logs) ? logs.length : r.body);
+
+console.log("\n[6] 日志详情和用量统计的表");
+const [{ d }] = await sql("SELECT COUNT(*) d FROM prism_logd");
+check(`日志详情也只留最近 500 条（库里 ${d} 条）`, Number(d) <= 500 && Number(d) >= 495, d);
+const newest = logs[0];
+const [drow] = await sql("SELECT id FROM prism_logd WHERE id = ?", [newest.id]);
+check("最新一条日志的详情在库里", !!drow, newest.id);
+const [{ un }] = await sql("SELECT COALESCE(SUM(requests),0) un FROM prism_usage WHERE model = 'gpt-4o'");
+check(`用量按天聚合写进 prism_usage（gpt-4o 共 ${un} 次，不是一请求一行）`, Number(un) >= 530, un);
+const [{ urows }] = await sql("SELECT COUNT(*) urows FROM prism_usage WHERE model = 'gpt-4o'");
+check(`聚合后 gpt-4o 只占 ${urows} 行`, Number(urows) <= 3, urows);
 
 await db.end();
 console.log(`\nMySQL 专项测试：${pass} 项通过，${failures.length} 项失败`);

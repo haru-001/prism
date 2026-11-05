@@ -4,12 +4,13 @@ import { bad } from "@/lib/server/api";
 import { makeTarget } from "@/lib/server/relay/target";
 import { adapterListModels } from "@/lib/server/relay/adapters";
 import { pickPopular } from "@/lib/models";
+import { withDb } from "@/lib/server/dbguard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /** 「获取模型」：按渠道类型调对应的模型列表接口 */
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function POSTHandler(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
@@ -27,3 +28,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return Response.json({ error: status ? `${status} · ${msg}` : msg }, { status: 502 });
   }
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const POST = withDb(POSTHandler);

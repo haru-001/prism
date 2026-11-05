@@ -7,8 +7,9 @@ import { hmac, newApiToken, safeEqual, sha } from "./crypto";
 export const SESSION_COOKIE = "prism_session";
 const SESSION_DAYS = 30;
 
-export async function storedPasswordHash(): Promise<string | null> {
-  return kv().get<string>(P + "auth:pw");
+/** 密码哈希走内存缓存（见 kv.ts 的 CachedKV），登录态校验不用每个请求都查库 */
+export async function storedPasswordHash(opts?: { fresh?: boolean }): Promise<string | null> {
+  return kv().get<string>(P + "auth:pw", opts);
 }
 
 export async function passwordConfigured(): Promise<boolean> {
@@ -16,9 +17,9 @@ export async function passwordConfigured(): Promise<boolean> {
   return !!(await storedPasswordHash());
 }
 
-async function fingerprint(): Promise<string> {
+async function fingerprint(opts?: { fresh?: boolean }): Promise<string> {
   if (env.accessPassword) return "env:" + sha(env.accessPassword);
-  const h = await storedPasswordHash();
+  const h = await storedPasswordHash(opts);
   return h ? "kv:" + sha(h) : "none";
 }
 
@@ -34,9 +35,11 @@ export async function verifySessionValue(value?: string | null): Promise<boolean
   const [expS, sig] = value.split(".");
   const exp = Number(expS);
   if (!exp || exp < Date.now() || !sig) return false;
-  const fp = await fingerprint();
-  if (fp === "none") return false;
-  return safeEqual(sig, hmac(`${exp}.${fp}`));
+  const ok = (fp: string) => fp !== "none" && safeEqual(sig, hmac(`${exp}.${fp}`));
+  if (ok(await fingerprint())) return true;
+  // 对不上时再直接读一次库：可能是别的实例刚改了密码、发了新 cookie，本实例缓存的还是旧哈希
+  if (env.accessPassword) return false;
+  return ok(await fingerprint({ fresh: true }));
 }
 
 /** 给 Server Component / Route Handler 用 */
@@ -55,8 +58,8 @@ export async function guard(): Promise<Response | null> {
 }
 
 // ===== 对外令牌 =====
-export async function getApiToken(): Promise<string> {
-  let t = await kv().get<string>(P + "token");
+export async function getApiToken(opts?: { fresh?: boolean }): Promise<string> {
+  let t = await kv().get<string>(P + "token", opts);
   if (!t) {
     t = newApiToken();
     await kv().set(P + "token", t);
@@ -88,6 +91,7 @@ export async function verifyApiToken(req: Request): Promise<boolean> {
   const t = extractToken(req);
   if (!t) return false;
   if (env.apiToken && safeEqual(t, env.apiToken)) return true;
-  const stored = await getApiToken();
-  return safeEqual(t, stored);
+  if (safeEqual(t, await getApiToken())) return true;
+  // 缓存里的令牌对不上：可能刚在别的实例重置过，直接读库再比一次
+  return safeEqual(t, await getApiToken({ fresh: true }));
 }

@@ -8,10 +8,17 @@ import { IdolSay, PageHeader, Toggle, toast } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { PERSONA_SYSTEM_PROMPT, callName, copy, fill } from "@/lib/copy";
 import type { Settings } from "@/lib/types";
+import dynamic from "next/dynamic";
 
-function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+// 预设和备份按需加载
+const PresetManager = dynamic(() => import("@/components/PresetManager"), { ssr: false, loading: () => <div className="shimmer h-16 rounded-xl" /> });
+const BackupPanel = dynamic(() => import("@/components/BackupPanel"), { ssr: false, loading: () => <div className="shimmer h-24 rounded-xl" /> });
+const Wardrobe = dynamic(() => import("@/components/rinne/Wardrobe").then((m) => m.Wardrobe), { ssr: false, loading: () => <div className="shimmer h-64 rounded-xl" /> });
+const DbPanel = dynamic(() => import("@/components/DbPanel").then((m) => m.DbPanel), { ssr: false, loading: () => <div className="shimmer h-24 rounded-xl" /> });
+
+function Section({ title, sub, children, id }: { title: string; sub?: string; children: React.ReactNode; id?: string }) {
   return (
-    <section className="card p-5">
+    <section className="card scroll-mt-20 p-5" id={id}>
       <h2 className="font-semibold">{title}</h2>
       {sub && <p className="mt-0.5 text-xs text-muted">{sub}</p>}
       <div className="mt-4">{children}</div>
@@ -116,9 +123,13 @@ export default function SettingsPage() {
           </p>
         </Section>
 
+        <Section id="wardrobe" title="形象 / 衣柜" sub="八套服装，选好后所有页面的棱音都会换上；选择保存在设置里，换设备也一样">
+          <Wardrobe />
+        </Section>
+
         <Section title="让模型也用棱音的口吻" sub="打开后，聊天页的回答会以棱音的身份说话。只影响聊天页，不影响对外接口。">
           <div className="flex items-center gap-3">
-            <Toggle on={settings.personaInModel} onChange={(v) => save({ personaInModel: v }, v ? "好耶，接下来由我来回答！" : "已关闭")} />
+            <Toggle on={settings.personaInModel} onChange={(v) => save({ personaInModel: v }, v ? "已开启，接下来由我来回答。" : "已关闭")} />
             <span className="text-sm">{settings.personaInModel ? "已开启" : "已关闭"}</span>
             <button className="ml-auto text-xs text-muted hover:text-ink" onClick={() => setShowPrompt((v) => !v)}>
               {showPrompt ? "收起人设提示词" : "查看人设提示词"}
@@ -150,6 +161,10 @@ export default function SettingsPage() {
               保存
             </button>
           </div>
+        </Section>
+
+        <Section id="presets" title="提示词预设" sub="常用的系统提示词存成预设，新建对话时在空白页或「系统提示词」里点一下就能套用">
+          <PresetManager />
         </Section>
 
         <Section title="主题">
@@ -190,6 +205,14 @@ export default function SettingsPage() {
                   : "存在本地文件里"}
             </li>
           </ul>
+        </Section>
+
+        <Section id="db" title="数据库容量" sub="Aiven 免费 MySQL 一共 1GB。打开这一页时量一次，可以按类型和时间清理旧数据">
+          <DbPanel />
+        </Section>
+
+        <Section id="backup" title="备份与恢复" sub="把渠道、设置、令牌、会话导出成一个加密文件；恢复前先预览会覆盖哪些内容">
+          <BackupPanel />
         </Section>
 
         <Section title="其他">

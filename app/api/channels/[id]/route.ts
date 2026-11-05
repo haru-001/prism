@@ -1,18 +1,21 @@
 import { guard } from "@/lib/server/auth";
-import { deleteChannel, getChannel, upsertChannel } from "@/lib/server/store";
+import { deleteChannel, listChannels, upsertChannel } from "@/lib/server/store";
 import { encrypt, maskKey } from "@/lib/server/crypto";
 import { bad, readJSON, toPublic } from "@/lib/server/api";
 import type { Channel } from "@/lib/types";
+import { withDb } from "@/lib/server/dbguard";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function PATCH(req: Request, ctx: Ctx) {
+async function PATCHHandler(req: Request, ctx: Ctx) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
-  const ch = await getChannel(id);
+  // 读一次最新列表，改完用同一份列表写回（原来要读两次）
+  const list = await listChannels({ fresh: true });
+  const ch = list.find((c) => c.id === id);
   if (!ch) return bad("渠道不存在", 404);
   const b = await readJSON<Partial<Channel> & { key?: string }>(req);
   if (!b) return bad("请求体不是合法 JSON");
@@ -39,14 +42,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
       next.timeoutStreak = 0;
     }
   }
-  await upsertChannel(next);
+  await upsertChannel(next, list);
   return Response.json({ channel: toPublic(next) });
 }
 
-export async function DELETE(_req: Request, ctx: Ctx) {
+async function DELETEHandler(_req: Request, ctx: Ctx) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
   await deleteChannel(id);
   return Response.json({ ok: true });
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const PATCH = withDb(PATCHHandler);
+export const DELETE = withDb(DELETEHandler);

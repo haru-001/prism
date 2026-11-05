@@ -4,11 +4,12 @@ import { kv, P } from "@/lib/server/kv";
 import { isAuthed, makeSessionValue, passwordConfigured, SESSION_COOKIE } from "@/lib/server/auth";
 import { hashPassword } from "@/lib/server/crypto";
 import { bad, readJSON } from "@/lib/server/api";
+import { withDb } from "@/lib/server/dbguard";
 
 export const dynamic = "force-dynamic";
 
 /** 首次引导设访问密码；已登录时也可用来修改（环境变量里设了密码时不允许） */
-export async function POST(req: Request) {
+async function POSTHandler(req: Request) {
   if (env.accessPassword) return bad("访问密码由环境变量 ACCESS_PASSWORD 管理，请到 Vercel 里修改", 409);
   if ((await passwordConfigured()) && !(await isAuthed())) return bad("请先登录", 401);
   const body = await readJSON<{ password?: string }>(req);
@@ -25,3 +26,6 @@ export async function POST(req: Request) {
   });
   return Response.json({ ok: true });
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const POST = withDb(POSTHandler);

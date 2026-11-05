@@ -44,3 +44,7 @@ tests/shots/
 
 # local data
 /.data
+
+# Python 缓存
+__pycache__/
+*.pyc

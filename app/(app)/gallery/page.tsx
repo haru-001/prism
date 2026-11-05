@@ -5,12 +5,13 @@ import Link from "next/link";
 import { Copy, Download, Loader2, MessageSquare, Search, Trash2 } from "lucide-react";
 import { Empty, Modal, PageHeader, copyText, toast } from "@/components/ui";
 import { api, fmtTime } from "@/lib/client/api";
+import { imgSrc, thumbOf } from "@/lib/client/thumb";
 import { copy } from "@/lib/copy";
 import type { GalleryItem } from "@/lib/types";
 
 function download(item: GalleryItem) {
   const a = document.createElement("a");
-  a.href = item.url;
+  a.href = imgSrc(item.url);
   a.download = `prism-${item.id}.png`;
   a.target = "_blank";
   a.rel = "noopener";
@@ -83,7 +84,7 @@ export default function GalleryPage() {
               <button key={i.id} className="group card overflow-hidden text-left" onClick={() => setView(i)}>
                 <div className="aspect-square overflow-hidden bg-soft">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={i.url} alt={i.prompt} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />
+                  <img src={thumbOf(i.url, 512)} alt={i.prompt} loading="lazy" decoding="async" className="h-full w-full object-cover transition group-hover:scale-105" />
                 </div>
                 <div className="p-2.5">
                   <div className="line-clamp-2 text-xs leading-snug">{i.prompt || "（无提示词）"}</div>
@@ -101,7 +102,7 @@ export default function GalleryPage() {
         {view && (
           <div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={view.url} alt={view.prompt} className="mx-auto max-h-[60vh] rounded-xl object-contain" />
+            <img src={imgSrc(view.url)} alt={view.prompt} className="mx-auto max-h-[60vh] rounded-xl object-contain" />
             <p className="mt-4 whitespace-pre-wrap text-sm">{view.prompt}</p>
             <p className="mt-1 text-xs text-muted">
               {view.model}

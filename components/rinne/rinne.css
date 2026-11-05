@@ -1,0 +1,163 @@
+/* ===== 棱音舞台（设计稿「界面融合」） ===== */
+.rn-scn {
+  --H: 340px;
+  --sp: 10px; /* 舞台内边距 */
+  --gap: 24px; /* 界面块和舞台的间距 */
+  --stage: #d8d8da;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "lk stg" "rs stg";
+  grid-template-rows: auto 1fr;
+  column-gap: var(--gap);
+  align-items: start;
+  width: 100%;
+}
+.rn-lg { --H: 430px; }
+.rn-md { --H: 340px; }
+.rn-sm { --H: 290px; }
+.rn-xs { --H: 150px; --sp: 6px; --gap: 14px; }
+.rn-bar { --H: 132px; --sp: 6px; --gap: 16px; }
+.rn-lk {
+  grid-area: lk;
+  position: relative;
+  min-width: 0;
+  /* 连线和连接点同高：界面块的上边距 = 舞台内边距 + 连接点高度 - 界面块里连线的高度 */
+  margin-top: max(0px, calc(var(--sp) + var(--H) * var(--hy) - var(--ly)));
+  z-index: 1;
+  transition: margin-top var(--rn-fade, 240ms) ease, margin-bottom var(--rn-fade, 240ms) ease;
+}
+/* steady：按最低的连接点预留高度（预留量 = 最低连接点的上边距 - 这张的上边距），整块高度不变 */
+.rn-steady {
+  --rn-comp: calc(max(0px, calc(var(--sp) + var(--H) * var(--hymax) - var(--ly))) - max(0px, calc(var(--sp) + var(--H) * var(--hy) - var(--ly))));
+}
+.rn-steady.rn-nors .rn-lk { margin-bottom: var(--rn-comp); }
+.rn-steady .rn-rs { margin-bottom: var(--rn-comp); transition: margin-bottom var(--rn-fade, 240ms) ease; }
+.rn-rs { grid-area: rs; min-width: 0; margin-top: 16px; }
+.rn-stg {
+  grid-area: stg;
+  position: relative;
+  padding: var(--sp);
+  border-radius: 18px;
+  background: var(--stage);
+  line-height: 0;
+  align-self: start;
+  /* 舞台宽度：这个状态八套里最宽的那张，换装时舞台不变宽变窄 */
+  width: calc(var(--H) * var(--arw, var(--ar)) + 2 * var(--sp));
+  box-sizing: border-box;
+}
+.rn-stg > .rn-fig {
+  margin-left: calc(var(--H) * var(--ox, 0));
+  transition: margin-left var(--rn-fade, 240ms) ease, width var(--rn-fade, 240ms) ease;
+}
+.rn-wire {
+  position: absolute;
+  top: var(--ly);
+  left: 100%;
+  /* 从界面块右边到她的手前 9px */
+  width: calc(var(--gap) + var(--sp) + var(--H) * var(--ox, 0) + var(--H) * var(--ar) * var(--hx) - 9px);
+  height: 2px;
+  margin-top: -1px;
+  background: linear-gradient(90deg, rgb(var(--brand-rgb, 124 92 255) / 0.15), rgb(var(--brand-rgb, 124 92 255) / 0.9));
+  border-radius: 2px;
+  pointer-events: none;
+  transition: width var(--rn-fade, 240ms) ease;
+}
+.rn-wire::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--brand-rgb, 124 92 255));
+}
+
+/* 立绘：固定高度 + aspect-ratio 占位，加载前后不跳 */
+.rn-fig {
+  position: relative;
+  display: block;
+  height: var(--H);
+  width: calc(var(--H) * var(--ar));
+  overflow: hidden;
+  transition: width var(--rn-fade, 240ms) ease;
+  border-radius: 12px;
+  background: var(--stage, #d8d8da);
+}
+/* <picture> 不占位，里面的 <img> 照旧相对 .rn-fig 定位 */
+.rn-pic { display: contents; }
+.rn-layer {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: none;
+  height: 100%;
+  opacity: 1;
+  transition-property: opacity;
+  transition-timing-function: ease-out;
+  user-select: none;
+}
+.rn-layer.rn-enter { opacity: 0; transition: none; }
+.rn-layer.rn-in { opacity: 1; }
+
+/* toast：小立绘靠右 */
+.rn-corner { width: auto; max-width: min(460px, calc(100vw - 24px)); grid-template-areas: "lk stg"; grid-template-rows: auto; }
+
+/* 手机：她照样全身站在右边，界面块在她左边，其余内容移到她下方 */
+@media (max-width: 560px) {
+  .rn-scn { --gap: 14px; --sp: 8px; grid-template-areas: "lk stg" "rs rs"; grid-template-rows: auto auto; }
+  .rn-lg { --H: 300px; }
+  .rn-md { --H: 270px; }
+  .rn-sm { --H: 240px; }
+  .rn-xs { --H: 140px; --sp: 5px; --gap: 10px; }
+  .rn-bar { --H: 124px; --sp: 5px; --gap: 12px; }
+  .rn-gd { --H: 262px; }
+  .rn-scn:not(.rn-mobfull) { grid-template-areas: "lk stg" "rs stg"; }
+  .rn-rs { margin-top: 14px; }
+  .rn-mobfull .rn-rs { margin-top: 16px; }
+  /* 手机上其余内容在她下方另起一行：预留量放在界面块下面 */
+  .rn-steady.rn-mobfull .rn-lk { margin-bottom: var(--rn-comp); }
+  .rn-steady.rn-mobfull .rn-rs { margin-bottom: 0; }
+}
+
+/* 「显示棱音」关掉时 */
+.rn-plain { display: flex; flex-direction: column; gap: 16px; width: 100%; }
+
+.rn-still .rn-layer, .rn-still .rn-fig, .rn-still .rn-wire, .rn-still .rn-lk, .rn-still .rn-rs { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .rn-fig, .rn-wire, .rn-lk, .rn-rs, .rn-stg > .rn-fig { transition: none !important; }
+}
+
+/* 平板（竖屏 561–1023px）：舞台稍小一点，给界面块留宽度 */
+@media (min-width: 561px) and (max-width: 1023px) {
+  .rn-lg { --H: 380px; }
+  .rn-md { --H: 310px; }
+  .rn-sm { --H: 260px; }
+}
+/* 横屏手机 / 矮窗口：按高度收小，人物仍然完整显示 */
+@media (orientation: landscape) and (max-height: 560px) {
+  .rn-lg { --H: min(300px, 62vh); }
+  .rn-md { --H: min(260px, 56vh); }
+  .rn-sm { --H: min(220px, 50vh); }
+  .rn-gd { --H: min(250px, 56vh); }
+  .rn-scn { grid-template-areas: "lk stg" "rs stg"; }
+}
+
+/* toast 和顶部提醒条里的小立绘 */
+.rn-fig.rn-toast-fig { --H: 96px; border-radius: 0; background: transparent; }
+.rn-fig.rn-bar-fig { --H: 84px; border-radius: 10px; }
+@media (max-width: 560px) {
+  .rn-fig.rn-toast-fig { --H: 84px; }
+  .rn-fig.rn-bar-fig { --H: 64px; }
+}
+
+/* 思考时接在她平板上的进度条 */
+.rn-progress { position: relative; height: 6px; overflow: hidden; border-radius: 999px; background: rgb(124 92 255 / 0.15); }
+.rn-progress > span { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: #7c5cff; animation: rn-prog 1.4s ease-in-out infinite; }
+@keyframes rn-prog { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+@media (prefers-reduced-motion: reduce) { .rn-progress > span { animation: none; width: 100%; opacity: 0.5; } }
+
+.rn-fig.rn-wd-preview { --H: 300px; }
+@media (max-width: 560px) { .rn-fig.rn-wd-preview { --H: 240px; } }

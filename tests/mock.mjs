@@ -1,4 +1,6 @@
 // 模拟上游：/oa = OpenAI，/cl = Claude，/gm = Gemini，/bad = 永远 500 的 OpenAI，/slow = 永远超时的 OpenAI
+// 国内访问测试用：/oaurl = 生图返回临时链接的 OpenAI，/oaurlbad = 返回的临时链接已失效
+// /tmpimg/* = 临时图片，/blob/<host>/<path> = 假的公开 Blob（PRISM_TEST_BLOB_ORIGIN 指过来），/notimg、/redir-* 测转发防护
 import http from "node:http";
 
 const PORT = Number(process.env.MOCK_PORT || 9100);
@@ -59,8 +61,28 @@ const server = http.createServer(async (req, res) => {
     body,
   });
 
+  // ---------- 图片（国内访问测试） ----------
+  if (p.startsWith("/tmpimg/") || p.startsWith("/blob/")) {
+    res.writeHead(200, { "content-type": p.includes("octet") ? "application/octet-stream" : "image/png" });
+    return res.end(Buffer.from(PNG, "base64"));
+  }
+  if (p.startsWith("/notimg")) {
+    res.writeHead(200, { "content-type": "text/html" });
+    return res.end("<html>not an image</html>");
+  }
+  if (p === "/redir-ok") {
+    res.writeHead(302, { location: "/tmpimg/after-redirect.png" });
+    return res.end();
+  }
+  if (p === "/redir-private") {
+    // 跳到内网地址（站点自己），应该被拦下
+    res.writeHead(302, { location: "http://127.0.0.1:3100/login" });
+    return res.end();
+  }
+  if (p.startsWith("/gone/")) return send(res, 404, { error: "expired" });
+
   // ---------- OpenAI ----------
-  const oa = p.match(/^\/(oa|bad|slow)\/v1\/(.*)$/);
+  const oa = p.match(/^\/(oa|oaurl|oaurlbad|bad|slow)\/v1\/(.*)$/);
   if (oa) {
     const [, kind, rest] = oa;
     if (rest === "models" && req.method === "GET")
@@ -94,6 +116,12 @@ const server = http.createServer(async (req, res) => {
         choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
         usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
       });
+    }
+    if (rest === "images/generations" && kind !== "oa") {
+      const n = body.n || 1;
+      const host = req.headers.host;
+      const base = kind === "oaurl" ? `http://${host}/tmpimg/gen-${Date.now()}` : `http://${host}/gone/gen-${Date.now()}`;
+      return send(res, 200, { created: 1, data: Array.from({ length: n }, (_, i) => ({ url: `${base}-${i}.png?se=2026&sig=abc`, revised_prompt: "mock: " + body.prompt })) });
     }
     if (rest === "images/generations") {
       const n = body.n || 1;

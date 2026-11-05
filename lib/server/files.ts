@@ -5,6 +5,9 @@ import { kv, P, storageKind } from "./kv";
 import { randomId } from "./crypto";
 import { q, T } from "./mysql";
 import type { RowDataPacket } from "mysql2/promise";
+import { lookup } from "node:dns/promises";
+import net from "node:net";
+import { BLOB_PUBLIC_HOST, FILES, localImageUrl, verifyImgSig } from "./imgurl";
 
 const EXT: Record<string, string> = {
   "image/png": "png",
@@ -14,13 +17,17 @@ const EXT: Record<string, string> = {
 };
 
 /**
- * 保存图片，返回可以直接放进 <img src> 的地址：
- * - 配了 Vercel Blob：存 Blob
+ * 保存图片，返回可以直接放进 <img src> 的本站地址（带签名，见 imgurl.ts）：
+ * - 配了 Vercel Blob：存 Blob（公开或私有都一样，浏览器只看到 /api/files/b/... 或 /api/files/bp/...）
  * - 用 MySQL（Aiven）：压缩后存进 prism_files 表，总量超过 DB_IMAGES_MAX_MB 时删掉最早的图
  * - 本地开发：存进 .data/kv.json
- * 后两种由 /api/files/[id] 输出。
+ * 都由 /api/files/[...path] 在服务端读取后输出，浏览器不会直连任何外部域名。
  */
 export async function saveFile(buf: Buffer, mime: string, folder = "images"): Promise<string> {
+  return localImageUrl(await saveFileRaw(buf, mime, folder));
+}
+
+async function saveFileRaw(buf: Buffer, mime: string, folder: string): Promise<string> {
   const id = randomId(16);
   if (env.blobToken) {
     const ext = EXT[mime] || "bin";
@@ -96,14 +103,17 @@ export async function evictOldFiles() {
     ids.push(r.id);
     over -= Number(r.size);
   }
-  if (ids.length) await q(`DELETE FROM ${T.files} WHERE id IN (?)`, [ids]);
+  if (ids.length) {
+    for (const id of ids) forget(id);
+    await q(`DELETE FROM ${T.files} WHERE id IN (?)`, [ids]);
+  }
   return ids.length;
 }
 
-/** 站内图片地址 /api/files/{id}.{ext} 里的 id；Blob 和外链返回 null */
+/** 站内图片地址 /api/files/{id}.{ext} 里的 id；Blob、外链代理和外链返回 null */
 export function localFileId(url: string): string | null {
-  if (!url.startsWith("/api/files/") || url.startsWith("/api/files/b/")) return null;
-  return url.slice("/api/files/".length).split(".")[0] || null;
+  if (!url.startsWith(FILES) || /^\/api\/files\/(b|bp|ext)([/?]|$)/.test(url)) return null;
+  return url.slice(FILES.length).split(/[.?]/)[0] || null;
 }
 
 /** 在 MySQL 里还存在的图片 id（被清理掉的不在其中） */
@@ -117,7 +127,54 @@ export async function existingFileIds(ids: string[]): Promise<Set<string>> {
   return out;
 }
 
+/** 所有存在 MySQL 里的图片 id（只读 id 列，不读图片数据）；不是 MySQL 存储时返回 null */
+export async function allDbFileIds(): Promise<Set<string> | null> {
+  if (storageKind() !== "mysql") return null;
+  const rows = await q<RowDataPacket[]>(`SELECT id FROM ${T.files}`);
+  return new Set(rows.map((r) => r.id as string));
+}
+
+/**
+ * 图片内容写入后永远不变：每个实例在内存里留最近读过的图（最多约 24MB），
+ * 同一张图再次打开时不用再查库（线上还有 CDN 缓存挡在前面）。图被自动清理时同步移除。
+ */
+const MEM_BUDGET = 24 * 1024 * 1024;
+const g = globalThis as unknown as { __prismFileCache?: Map<string, { mime: string; data: Buffer }> };
+const mem = (g.__prismFileCache ??= new Map());
+let memBytes = 0;
+function forget(id: string) {
+  const v = mem.get(id);
+  if (v) {
+    memBytes -= v.data.length;
+    mem.delete(id);
+  }
+}
+function keep(id: string, v: { mime: string; data: Buffer }) {
+  if (v.data.length > MEM_BUDGET / 8) return;
+  forget(id);
+  mem.set(id, v);
+  memBytes += v.data.length;
+  while (memBytes > MEM_BUDGET && mem.size) forget(mem.keys().next().value as string);
+}
+
+/** 清理图片后把这些图从本实例的内存缓存里去掉 */
+export function forgetFiles(ids: string[]) {
+  for (const id of ids) forget(id);
+}
+
 export async function readKvFile(id: string): Promise<{ mime: string; data: Buffer } | null> {
+  const hit = mem.get(id);
+  if (hit) {
+    mem.delete(id);
+    mem.set(id, hit);
+    return hit;
+  }
+  const v = await readKvFileFromDb(id);
+  if (v) keep(id, v);
+  return v;
+}
+
+async function readKvFileFromDb(id: string): Promise<{ mime: string; data: Buffer } | null> {
   if (storageKind() === "mysql") {
     const rows = await q<RowDataPacket[]>(`SELECT mime, data FROM ${T.files} WHERE id = ?`, [id]);
     if (rows[0]) return { mime: rows[0].mime, data: Buffer.from(rows[0].data) };
@@ -136,22 +193,163 @@ export async function resolveImage(url: string): Promise<{ data: string; mime: s
     const data = m[2] ? m[3] : Buffer.from(decodeURIComponent(m[3])).toString("base64");
     return { data, mime };
   }
-  if (url.startsWith("/api/files/b/")) {
-    const { get } = await import("@vercel/blob");
-    const pathname = decodeURIComponent(url.slice("/api/files/b/".length));
-    const r = await get(pathname, { access: "private", token: env.blobToken });
-    if (!r || !r.stream) throw new Error("图片不存在");
-    const buf = Buffer.from(await new Response(r.stream).arrayBuffer());
-    return { data: buf.toString("base64"), mime: r.blob.contentType || "image/png" };
-  }
-  if (url.startsWith("/api/files/")) {
-    const id = url.slice("/api/files/".length).split(".")[0];
-    const f = await readKvFile(id);
+  if (url.startsWith(FILES)) {
+    const f = await readLocalImage(url);
     if (!f) throw new Error("图片不存在");
     return { data: f.data.toString("base64"), mime: f.mime };
   }
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`下载图片失败：${res.status}`);
-  const mime = res.headers.get("content-type")?.split(";")[0] || "image/png";
-  return { data: Buffer.from(await res.arrayBuffer()).toString("base64"), mime };
+  // 本站发出去的完整链接（API 客户端把生图结果再传回来识图时）：签名对得上就直接读，不绕一圈 HTTP
+  try {
+    const x = new URL(url);
+    if (x.pathname.startsWith(FILES) && verifyImgSig(x.pathname, x.searchParams)) {
+      const f = await readLocalImage(x.pathname + x.search);
+      if (f) return { data: f.data.toString("base64"), mime: f.mime };
+    }
+  } catch {}
+  const f = await fetchRemoteImage(url);
+  return { data: f.data.toString("base64"), mime: f.mime };
+}
+
+/** 读站内地址 /api/files/...（可带查询参数）对应的图片内容；读不到返回 null */
+export async function readLocalImage(url: string): Promise<{ mime: string; data: Buffer } | null> {
+  const q = url.indexOf("?");
+  const path = q < 0 ? url : url.slice(0, q);
+  const sp = new URLSearchParams(q < 0 ? "" : url.slice(q + 1));
+  const rest = path.slice(FILES.length);
+  if (rest === "ext") {
+    const u = sp.get("u");
+    return u ? fetchRemoteImage(u) : null;
+  }
+  const segs = rest.split("/").map((x) => {
+    try {
+      return decodeURIComponent(x);
+    } catch {
+      return x;
+    }
+  });
+  if (segs[0] === "b" || segs[0] === "bp") {
+    const r = await readBlob(segs);
+    if (!r) return null;
+    return { mime: r.mime, data: Buffer.from(await new Response(r.body).arrayBuffer()) };
+  }
+  return readKvFile(segs[0].split(".")[0]);
+}
+
+/**
+ * 读 Blob 里的图：segs 是 /api/files/ 后面按 / 切开并解码的各段。
+ * - ["b", ...pathname]：私有 Blob，用 BLOB_READ_WRITE_TOKEN 读
+ * - ["bp", host, ...pathname]：公开 Blob，服务端直接下载（只允许 *.public.blob.vercel-storage.com）
+ */
+export async function readBlob(segs: string[]): Promise<{ mime: string; body: ReadableStream<Uint8Array> } | null> {
+  if (segs[0] === "b") {
+    if (!env.blobToken) return null;
+    const pathname = segs.slice(1).join("/");
+    if (!pathname.startsWith("prism/")) return null;
+    const { get } = await import("@vercel/blob");
+    const r = await get(pathname, { access: "private", token: env.blobToken });
+    if (!r || !r.stream) return null;
+    return { mime: r.blob.contentType || "image/png", body: r.stream };
+  }
+  const host = segs[1] || "";
+  if (!BLOB_PUBLIC_HOST.test(host)) return null;
+  const pathname = segs.slice(2).map(encodeURIComponent).join("/");
+  // 测试用：把公开 Blob 的请求转到本地模拟服务
+  const base = process.env.PRISM_TEST_BLOB_ORIGIN ? `${process.env.PRISM_TEST_BLOB_ORIGIN}/${host}` : `https://${host}`;
+  const res = await fetch(`${base}/${pathname}`, { signal: AbortSignal.timeout(20000) }).catch(() => null);
+  if (!res || !res.ok || !res.body) return null;
+  return { mime: res.headers.get("content-type")?.split(";")[0] || "image/png", body: res.body };
+}
+
+const REMOTE_MAX = 20 * 1024 * 1024;
+
+/** 内网和保留地址：外链代理不允许访问，防止被拿来探测内网 */
+function isPrivateIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224;
+  }
+  const x = ip.toLowerCase();
+  if (x.startsWith("::ffff:")) return isPrivateIp(x.slice(7));
+  return x === "::" || x === "::1" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe80");
+}
+
+/** 测试用：PRISM_ALLOW_PRIVATE_IMAGE_FETCH=1 放行所有内网地址，或者写成 "127.0.0.1:9100,..." 只放行这几个 host:port */
+function privateAllowed(u: URL) {
+  const v = (process.env.PRISM_ALLOW_PRIVATE_IMAGE_FETCH || "").trim();
+  if (!v) return false;
+  if (v === "1") return true;
+  return v
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .includes(u.host.toLowerCase());
+}
+
+async function assertPublicHost(u: URL) {
+  if (privateAllowed(u)) return;
+  const h = u.hostname.replace(/^\[|\]$/g, "");
+  const ips = net.isIP(h) ? [h] : (await lookup(h, { all: true })).map((r) => r.address);
+  if (!ips.length || ips.some(isPrivateIp)) throw new Error("不允许访问内网地址");
+}
+
+/**
+ * 服务端下载外部图片（上游生图返回的临时链接、旧数据里的外链、模型回答里的图片）。
+ * guardPrivate：给浏览器用的外链代理要拦住内网地址，重定向的每一跳都检查。
+ * 只接受 image/* 内容，最大 20MB，20 秒超时。
+ */
+export async function fetchRemoteImage(url: string, opts: { guardPrivate?: boolean } = {}): Promise<{ mime: string; data: Buffer }> {
+  let cur = url;
+  for (let hop = 0; hop < 4; hop++) {
+    let u: URL;
+    try {
+      u = new URL(cur);
+    } catch {
+      throw new Error("图片地址无效");
+    }
+    if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("图片地址无效");
+    if (opts.guardPrivate) await assertPublicHost(u);
+    const res = await fetch(u, { redirect: "manual", signal: AbortSignal.timeout(20000), headers: { accept: "image/*,*/*;q=0.5" } });
+    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+      cur = new URL(res.headers.get("location")!, u).toString();
+      continue;
+    }
+    if (!res.ok) throw new Error(`下载图片失败：${res.status}`);
+    let mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || "";
+    const len = Number(res.headers.get("content-length") || 0);
+    if (len > REMOTE_MAX) throw new Error("图片太大");
+    const data = Buffer.from(await res.arrayBuffer());
+    if (data.length > REMOTE_MAX) throw new Error("图片太大");
+    if (!mime.startsWith("image/")) {
+      const sniffed = sniffImage(data);
+      if (!sniffed) throw new Error("链接返回的不是图片");
+      mime = sniffed;
+    }
+    return { mime, data };
+  }
+  throw new Error("图片地址重定向次数太多");
+}
+
+/** 有的存储返回 application/octet-stream：看文件头认出常见图片格式 */
+function sniffImage(b: Buffer): string | null {
+  if (b.length < 12) return null;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b.slice(0, 4).toString() === "GIF8") return "image/gif";
+  if (b.slice(0, 4).toString() === "RIFF" && b.slice(8, 12).toString() === "WEBP") return "image/webp";
+  return null;
+}
+
+/**
+ * 上游生图返回的是临时链接（比如 OpenAI 的 *.blob.core.windows.net）时，服务端立刻下载并存好，返回本站地址。
+ * 下载两次都失败时，退回到经本站转发的外链代理地址，浏览器仍然只访问本站。
+ */
+export async function persistRemoteImage(url: string): Promise<string> {
+  for (let i = 0; i < 2; i++) {
+    try {
+      const f = await resolveImage(url);
+      return await saveFile(Buffer.from(f.data, "base64"), f.mime);
+    } catch (e) {
+      if (i === 1) console.error("[prism] 转存上游图片失败，改用转发地址", (e as Error)?.message || e);
+    }
+  }
+  return localImageUrl(url);
 }

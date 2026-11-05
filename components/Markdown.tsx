@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Copy } from "lucide-react";
 import { copyText } from "./ui";
+import { imgSrc } from "@/lib/client/thumb";
 
 function textOf(node: ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
@@ -33,20 +34,72 @@ function Pre({ children }: { children?: ReactNode }) {
   );
 }
 
-function MarkdownInner({ text }: { text: string }) {
+const PLUGINS_REMARK = [remarkGfm];
+const PLUGINS_REHYPE: NonNullable<Parameters<typeof ReactMarkdown>[0]["rehypePlugins"]> = [[rehypeHighlight, { detect: true, ignoreMissing: true }]];
+const COMPONENTS: NonNullable<Parameters<typeof ReactMarkdown>[0]["components"]> = {
+  pre: Pre,
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+  // 模型回答里的图片（![](https://...)）经本站转发，不让浏览器直连外部域名
+  img: ({ src, alt }) =>
+    typeof src === "string" && src ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={imgSrc(src)} alt={alt || ""} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+    ) : null,
+};
+
+const Block = memo(function Block({ text }: { text: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={PLUGINS_REMARK} rehypePlugins={PLUGINS_REHYPE} components={COMPONENTS}>
+      {text}
+    </ReactMarkdown>
+  );
+});
+
+/**
+ * 按「代码块之外的空行」把 Markdown 切成段。流式输出时前面写完的段不会再变，
+ * 每段单独缓存渲染，新字只会让最后一段重新解析，长回答也不会越打越卡。
+ */
+export function splitBlocks(text: string): string[] {
+  const out: string[] = [];
+  let cur: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split("\n")) {
+    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (m) {
+      if (!fence) fence = m[1][0];
+      else if (m[1][0] === fence) fence = null;
+    }
+    if (!fence && line.trim() === "" && cur.length && !/^\s*([-*+]|\d+\.)\s/.test(cur[cur.length - 1]) && !/^\s*\|/.test(cur[cur.length - 1])) {
+      out.push(cur.join("\n"));
+      cur = [];
+      continue;
+    }
+    cur.push(line);
+  }
+  if (cur.length) out.push(cur.join("\n"));
+  return out;
+}
+
+function MarkdownInner({ text, streaming }: { text: string; streaming?: boolean }) {
+  if (streaming) {
+    return (
+      <div className="md">
+        {splitBlocks(text).map((b, i) => (
+          <Block key={i} text={b} />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
-        components={{
-          pre: Pre,
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
-        }}
+        remarkPlugins={PLUGINS_REMARK}
+        rehypePlugins={PLUGINS_REHYPE}
+        components={COMPONENTS}
       >
         {text}
       </ReactMarkdown>

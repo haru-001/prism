@@ -4,12 +4,13 @@ import { bad, readJSON } from "@/lib/server/api";
 import { makeTarget } from "@/lib/server/relay/target";
 import { adapterChat, adapterListModels } from "@/lib/server/relay/adapters";
 import { capsFor, exposedModels } from "@/lib/server/relay/router";
+import { withDb } from "@/lib/server/dbguard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /** 测试线路：用一个对话模型发一句极短的请求；没有对话模型时退回「拉模型列表」 */
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function POSTHandler(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
@@ -53,3 +54,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return Response.json({ ok: false, message, via: chatModel?.id || "模型列表" });
   }
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const POST = withDb(POSTHandler);

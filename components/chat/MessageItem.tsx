@@ -1,16 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Brain, ChevronDown, Copy, Download, PencilLine, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ChatMsg } from "@/lib/types";
 import { fmtMs } from "@/lib/client/api";
 import { copy as C } from "@/lib/copy";
-import { Markdown } from "../Markdown";
+import { imgSrc, thumbOf } from "@/lib/client/thumb";
 import { IdolAvatar } from "../Logo";
+import { RinneScene } from "../rinne/RinneScene";
 import { ModelAvatar, copyText, toast } from "../ui";
 
-export async function downloadImage(url: string) {
+/**
+ * Markdown 渲染（含代码高亮）体积大，单独拆包按需加载：欢迎页不用下载它，
+ * ChatView 挂载后会在空闲时预加载；没加载完之前先显示纯文本，不会空白。
+ * 不用 React.lazy：它每次首次渲染都要挂起一下，React 会把显示推迟约 300ms。
+ */
+type MdComp = (typeof import("../Markdown"))["Markdown"];
+let MD: MdComp | null = null;
+let mdLoading: Promise<unknown> | null = null;
+const mdWaiters = new Set<() => void>();
+export function loadMarkdown() {
+  mdLoading ??= import("../Markdown").then((m) => {
+    MD = m.Markdown;
+    mdWaiters.forEach((f) => f());
+    mdWaiters.clear();
+  });
+  return mdLoading;
+}
+function Markdown({ text, streaming }: { text: string; streaming?: boolean }) {
+  const [ready, setReady] = useState(!!MD);
+  useEffect(() => {
+    // 渲染和这里之间模块可能刚好加载完，补一次
+    if (MD) return void setReady(true);
+    const f = () => setReady(true);
+    mdWaiters.add(f);
+    void loadMarkdown().catch(() => {});
+    return () => void mdWaiters.delete(f);
+  }, []);
+  const C = ready || MD ? MD : null;
+  return C ? <C text={text} streaming={streaming} /> : <div className="md whitespace-pre-wrap">{text}</div>;
+}
+
+export async function downloadImage(raw: string) {
+  const url = imgSrc(raw);
   try {
     const res = await fetch(url);
     const blob = await res.blob();
@@ -40,9 +73,9 @@ export function ImageGrid({
     <div className={`grid gap-2 ${urls.length > 1 ? "grid-cols-2" : "grid-cols-1"} ${small ? "max-w-[220px]" : "max-w-[520px]"}`}>
       {urls.map((u, i) => (
         <div key={u + i} className="group relative overflow-hidden rounded-xl border border-rule bg-soft">
-          <a href={u} target="_blank" rel="noreferrer">
+          <a href={imgSrc(u)} target="_blank" rel="noreferrer">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={u} alt="" className="block h-auto w-full object-cover" loading="lazy" />
+            <img src={thumbOf(u, small || urls.length > 1 ? 512 : 1024)} alt="" className="block h-auto w-full object-cover" loading="lazy" decoding="async" />
           </a>
           {!small && (
             <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
@@ -147,48 +180,82 @@ export function MessageItem({
 
         {m.mode === "image" ? (
           m.pending ? (
-            <div className="space-y-2">
-              <div className="pill !mx-0">
-                <IdolAvatar size={18} />
-                {C.chat.imageStart.replace("{model}", m.model || "")}
-              </div>
-              <div className="grid max-w-[520px] grid-cols-2 gap-2">
-                {Array.from({ length: m.imageMeta?.n || 1 }).map((_, i) => (
-                  <div key={i} className="shimmer aspect-square rounded-xl" />
-                ))}
-              </div>
-            </div>
+            <RinneScene
+              mood="imaging"
+              size="sm"
+              ly={22}
+              testId="imaging-scene"
+              link={
+                <div className="w-full space-y-2">
+                  <div className="pill !mx-0">{C.chat.imageStart.replace("{model}", m.model || "")}</div>
+                  <div className="grid max-w-[420px] grid-cols-2 gap-2">
+                    {Array.from({ length: m.imageMeta?.n || 1 }).map((_, i) => (
+                      <div key={i} className="shimmer aspect-square rounded-xl" />
+                    ))}
+                  </div>
+                </div>
+              }
+            />
           ) : (
-            !!m.images?.length && <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />
+            !!m.images?.length &&
+            (isLast ? (
+              <RinneScene mood="success" size="sm" ly={22} testId="image-done-scene" link={<ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />} />
+            ) : (
+              <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />
+            ))
           )
         ) : (
           <>
             {m.text ? (
               <div className={m.pending && streaming ? "typing-caret-wrap" : ""}>
-                <Markdown text={m.text} />
+                <Markdown text={m.text} streaming={m.pending && streaming} />
               </div>
             ) : (
-              m.pending && <span className="typing-caret text-muted" />
+              m.pending && (
+                <RinneScene
+                  mood="thinking"
+                  size="sm"
+                  ly={20}
+                  testId="thinking-scene"
+                  link={
+                    <div className="w-full max-w-xs" role="status">
+                      <div className="mb-1.5 text-[13px] text-muted">{m.reasoning ? "正在推理，请稍候…" : "正在整理回答…"}</div>
+                      <div className="rn-progress" aria-hidden>
+                        <span />
+                      </div>
+                    </div>
+                  }
+                />
+              )
             )}
           </>
         )}
 
-        {m.error && (
-          <div className="mt-2 rounded-2xl border border-bad/30 bg-bad/5 p-3">
-            <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-bad">
-              <TriangleAlert size={15} /> {m.error.title}
-            </div>
-            <div className="flex items-start gap-2">
-              <IdolAvatar size={22} />
-              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink/80">{m.error.message}</p>
-            </div>
-            {m.error.fix === "channels" && (
-              <Link href="/channels" className="btn-ghost btn-sm mt-2">
-                {C.errors.fix}
-              </Link>
-            )}
-          </div>
-        )}
+        {m.error &&
+          (() => {
+            const card = (
+              <div className="w-full rounded-2xl border border-bad/30 bg-bad/5 p-3" data-testid="error-card">
+                <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-bad">
+                  <TriangleAlert size={15} /> {m.error.title}
+                </div>
+                <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink/80">{m.error.message}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {m.error.fix === "channels" && (
+                    <Link href="/channels" className="btn-ghost btn-sm">
+                      {C.errors.fix}
+                    </Link>
+                  )}
+                  {isLast && (onRegenerate || onRegenImage) && (
+                    <button className="btn-ghost btn-sm" onClick={m.mode === "image" ? onRegenImage : onRegenerate}>
+                      <RefreshCw size={13} /> 重试
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+            // 只有最后一条报错配棱音（拿着手机），历史里的报错只留卡片
+            return <div className="mt-2">{isLast ? <RinneScene mood="error" size="sm" ly={24} testId="error-scene" link={card} /> : card}</div>;
+          })()}
         {m.error && firstErrorTip && (
           <div className="mt-2">
             <Coach onOk={() => onFirstErrorSeen?.()}>{C.errors.firstErrorTip}</Coach>
@@ -222,3 +289,4 @@ export function MessageItem({
 export function notifyCopied() {
   toast("已复制", "ok");
 }
+

@@ -2,12 +2,13 @@ import { guard } from "@/lib/server/auth";
 import { deleteConversation, getConversation, saveConversation } from "@/lib/server/store";
 import { bad, readJSON } from "@/lib/server/api";
 import type { Conversation } from "@/lib/types";
+import { withDb } from "@/lib/server/dbguard";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, ctx: Ctx) {
+async function GETHandler(_req: Request, ctx: Ctx) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
@@ -16,7 +17,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   return Response.json({ conversation: c });
 }
 
-export async function PUT(req: Request, ctx: Ctx) {
+async function PUTHandler(req: Request, ctx: Ctx) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
@@ -41,10 +42,15 @@ export async function PUT(req: Request, ctx: Ctx) {
   return Response.json({ ok: true, updatedAt: now });
 }
 
-export async function DELETE(_req: Request, ctx: Ctx) {
+async function DELETEHandler(_req: Request, ctx: Ctx) {
   const g = await guard();
   if (g) return g;
   const { id } = await ctx.params;
   await deleteConversation(id);
   return Response.json({ ok: true });
 }
+
+// 数据库连不上时返回 503 和中文说明（前端据此显示「数据库睡着了」）
+export const GET = withDb(GETHandler);
+export const PUT = withDb(PUTHandler);
+export const DELETE = withDb(DELETEHandler);
