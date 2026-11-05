@@ -14,6 +14,7 @@ const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/webp": "webp",
   "image/gif": "gif",
+  "image/avif": "avif",
 };
 
 /**
@@ -23,6 +24,28 @@ const EXT: Record<string, string> = {
  * - 本地开发：存进 .data/kv.json
  * 都由 /api/files/[...path] 在服务端读取后输出，浏览器不会直连任何外部域名。
  */
+/**
+ * 存上游给的 base64 图片。不少中转站的 b64_json 带着 "data:image/png;base64," 前缀、换行，
+ * 或者实际是 JPEG / WebP 却一律标成 PNG；直接 Buffer.from 会把前缀当数据解出来，存下的图就是乱码。
+ * 这里先去掉前缀和空白，再按文件头认出真实格式；认不出就当作没有图，交给上层报错。
+ */
+export async function saveBase64Image(b64: string, mime = "image/png"): Promise<string | null> {
+  let s = b64.trim();
+  const m = /^data:([^;,]+)?(?:;base64)?,/i.exec(s);
+  if (m) {
+    if (m[1]) mime = m[1];
+    s = s.slice(m[0].length);
+  }
+  s = s.replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  const buf = Buffer.from(s, "base64");
+  const real = sniffImage(buf);
+  if (!real) {
+    console.error("[prism] 上游返回的 base64 不是图片，已丢弃", buf.subarray(0, 16).toString("hex"));
+    return null;
+  }
+  return saveFile(buf, real || mime);
+}
+
 export async function saveFile(buf: Buffer, mime: string, folder = "images"): Promise<string> {
   return localImageUrl(await saveFileRaw(buf, mime, folder));
 }
@@ -335,6 +358,7 @@ function sniffImage(b: Buffer): string | null {
   if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
   if (b.slice(0, 4).toString() === "GIF8") return "image/gif";
   if (b.slice(0, 4).toString() === "RIFF" && b.slice(8, 12).toString() === "WEBP") return "image/webp";
+  if (b.slice(4, 8).toString() === "ftyp" && /^avi[fs]$/.test(b.slice(8, 12).toString())) return "image/avif";
   return null;
 }
 

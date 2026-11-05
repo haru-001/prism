@@ -5,10 +5,11 @@ import Link from "next/link";
 import { Brain, ChevronDown, Copy, Download, PencilLine, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ChatMsg } from "@/lib/types";
 import { fmtMs } from "@/lib/client/api";
-import { copy as C } from "@/lib/copy";
+import { copy as C, fill } from "@/lib/copy";
+import { useApp } from "../AppContext";
 import { imgSrc, thumbOf } from "@/lib/client/thumb";
 import { IdolAvatar } from "../Logo";
-import { RinneScene } from "../rinne/RinneScene";
+import { RinneInline } from "../rinne/RinneInline";
 import { ModelAvatar, copyText, toast } from "../ui";
 
 /**
@@ -135,6 +136,7 @@ export function MessageItem({
   onFirstErrorSeen?: () => void;
 }) {
   const [showReason, setShowReason] = useState(false);
+  const callName = useApp().name;
 
   if (m.role === "notice")
     return (
@@ -180,29 +182,36 @@ export function MessageItem({
 
         {m.mode === "image" ? (
           m.pending ? (
-            <RinneScene
-              mood="imaging"
-              size="sm"
-              ly={22}
-              testId="imaging-scene"
-              link={
-                <div className="w-full space-y-2">
-                  <div className="pill !mx-0">{C.chat.imageStart.replace("{model}", m.model || "")}</div>
-                  <div className="grid max-w-[420px] grid-cols-2 gap-2">
-                    {Array.from({ length: m.imageMeta?.n || 1 }).map((_, i) => (
-                      <div key={i} className="shimmer aspect-square rounded-xl" />
-                    ))}
-                  </div>
+            <RinneInline mood="imaging" testId="imaging-scene">
+              <div className="w-full space-y-2">
+                <div className="pill !mx-0">{C.chat.imageStart.replace("{model}", m.model || "")}</div>
+                <div className="grid max-w-[420px] grid-cols-2 gap-2">
+                  {Array.from({ length: m.imageMeta?.n || 1 }).map((_, i) => (
+                    <div key={i} className="shimmer aspect-square rounded-xl" />
+                  ))}
                 </div>
-              }
-            />
-          ) : (
-            !!m.images?.length &&
-            (isLast ? (
-              <RinneScene mood="success" size="sm" ly={22} testId="image-done-scene" link={<ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />} />
-            ) : (
+              </div>
+            </RinneInline>
+          ) : m.images?.length ? (
+            <>
+              {/* 结果图直接放在消息里占满宽度（以前塞在全身舞台左边的窄栏里，图被挤小） */}
               <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />
-            ))
+              {m.text && <p className="mt-2 text-[13px] leading-relaxed text-muted">{m.text}</p>}
+            </>
+          ) : (
+            !m.error && (
+              // 上游返回成功但没有图（或图没存下来）：以前这里什么都不显示，看起来像「没回显」
+              <div className="rounded-2xl border border-rule bg-card p-3 text-[13px] text-muted" data-testid="image-empty">
+                {C.chat.imageEmpty}
+                {isLast && onRegenImage && (
+                  <div className="mt-2">
+                    <button className="btn-ghost btn-sm" onClick={onRegenImage}>
+                      <RefreshCw size={13} /> 重新生成
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
           )
         ) : (
           <>
@@ -211,21 +220,22 @@ export function MessageItem({
                 <Markdown text={m.text} streaming={m.pending && streaming} />
               </div>
             ) : (
-              m.pending && (
-                <RinneScene
-                  mood="thinking"
-                  size="sm"
-                  ly={20}
-                  testId="thinking-scene"
-                  link={
-                    <div className="w-full max-w-xs" role="status">
-                      <div className="mb-1.5 text-[13px] text-muted">{m.reasoning ? "正在推理，请稍候…" : "正在整理回答…"}</div>
-                      <div className="rn-progress" aria-hidden>
-                        <span />
-                      </div>
+              m.pending ? (
+                <RinneInline mood="thinking" testId="thinking-scene">
+                  <div className="w-full max-w-xs" role="status">
+                    <div className="mb-1.5 text-[13px] text-muted">{m.reasoning ? "正在推理，请稍候…" : "正在整理回答…"}</div>
+                    <div className="rn-progress" aria-hidden>
+                      <span />
                     </div>
-                  }
-                />
+                  </div>
+                </RinneInline>
+              ) : (
+                !m.error && (
+                  // 流结束了但一个字都没收到（只有推理、或上游格式没解析出来）：明确告诉用户，而不是留一片空白
+                  <div className="text-[13px] italic text-muted" data-testid="chat-empty">
+                    {C.chat.textEmpty}
+                  </div>
+                )
               )
             )}
           </>
@@ -254,11 +264,24 @@ export function MessageItem({
               </div>
             );
             // 只有最后一条报错配棱音（拿着手机），历史里的报错只留卡片
-            return <div className="mt-2">{isLast ? <RinneScene mood="error" size="sm" ly={24} testId="error-scene" link={card} /> : card}</div>;
+            return (
+              <div className="mt-2">
+                {isLast ? (
+                  <RinneInline mood="error" testId="error-scene">
+                    {card}
+                  </RinneInline>
+                ) : (
+                  card
+                )}
+              </div>
+            );
           })()}
         {m.error && firstErrorTip && (
           <div className="mt-2">
-            <Coach onOk={() => onFirstErrorSeen?.()}>{C.errors.firstErrorTip}</Coach>
+            <Coach onOk={() => onFirstErrorSeen?.()}>
+              {/* 以前直接显示模板，界面上会露出「{name}」；没有「去修复」按钮时也不该让人去点它 */}
+              {m.error.fix === "channels" ? fill(C.errors.firstErrorTip, { name: callName }) : C.errors.firstErrorTipRetry}
+            </Coach>
           </div>
         )}
 

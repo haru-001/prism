@@ -11,8 +11,12 @@ import assets from "./rinne-assets.json";
 export type Mood = "welcome" | "guide" | "thinking" | "success" | "error" | "imaging" | "waiting";
 export type OutfitId = "suit" | "gown" | "summer" | "home" | "trench" | "qipao" | "bridal" | "sport";
 export type RinneMotion = "system" | "on" | "off";
-/** 舞台尺寸档：lg 430px、md 340px、sm 290px（手机 300 / 270 / 240），xs 是 toast（96，手机 84），bar 是顶部提醒条（84，手机 64） */
-export type StageSize = "lg" | "md" | "sm" | "xs" | "bar";
+/** 舞台尺寸档：lg 430px、md 340px、sm 290px（手机 300 / 270 / 240）全身；xs 是 toast（96，手机 84）、bar 是顶部提醒条（84，手机 64）、chat 是对话里的小场景（150，手机 124），这三档是半身 */
+export type StageSize = "lg" | "md" | "sm" | "xs" | "bar" | "chat";
+/** 这几档显示半身（头顶到腰）：全身缩到一百来像素就看不清脸了 */
+export function isBust(size: StageSize) {
+  return size === "xs" || size === "bar" || size === "chat";
+}
 
 export const MOODS: Mood[] = ["welcome", "guide", "thinking", "success", "error", "imaging", "waiting"];
 
@@ -53,7 +57,7 @@ export function moodAlt(o: OutfitId, m: Mood) {
 
 type MoodMeta = { ar: number; hx: number; hy: number };
 /** f：WebP 的哈希 [舞台1x, 舞台2x, 小立绘1x, 小立绘2x, 头像1x, 头像2x]；a：AVIF 的哈希 [舞台1x, 舞台2x, 小立绘1x, 小立绘2x] */
-type Entry = MoodMeta & { bx: number; f: string[]; a: string[] };
+type Entry = MoodMeta & { bx: number; ty?: number; f: string[]; a: string[] };
 const A = assets as unknown as {
   tiers: { stage: [number, number]; mini: [number, number] };
   outfits: Record<OutfitId, Record<Mood, Entry> & { thumb: string[] }>;
@@ -91,6 +95,17 @@ export function stageFit(o: OutfitId, m: Mood): { arw: number; ox: number } {
   return { arw, ox: Math.round(ox * 10000) / 10000 };
 }
 
+/**
+ * 半身裁切（toast、提醒条、对话里的小场景）：只显示头顶到腰附近这一段，人物放大到看得清脸和动作。
+ * ty：头顶（含帽子、举起的手以外）在画布里的高度比例；bx：头部中心的横向比例。
+ * BUST_K：显示窗口占画布高度的比例（站姿约到腰，坐姿约到膝）。
+ */
+export const BUST_K = 0.44;
+export function bustMeta(o: OutfitId, m: Mood): { ty: number; bx: number } {
+  const e = A.outfits[o][m];
+  return { ty: e.ty ?? 0.02, bx: e.bx };
+}
+
 /** 各尺寸档的显示高度：[桌面, 手机(≤560px)] */
 export const STAGE_H: Record<StageSize, [number, number]> = {
   lg: [430, 300],
@@ -98,11 +113,11 @@ export const STAGE_H: Record<StageSize, [number, number]> = {
   sm: [290, 240],
   xs: [96, 84],
   bar: [84, 64],
+  chat: [150, 124],
 };
 
 /** 图片文件的高度档（由 export_stage3.py 写进 rinne-assets.json）：舞台 430 / 860，小立绘 100 / 250 */
 const STAGE_FILE_H = A.tiers.stage;
-const MINI_FILE_H = A.tiers.mini;
 
 function url(o: OutfitId, m: Mood, suffix: string, i: number) {
   return `/img/rinne/${o}/${m}${suffix}.${A.outfits[o][m].f[i]}.webp`;
@@ -123,29 +138,48 @@ export interface FigureSrc {
 }
 
 /**
- * 立绘图片地址。舞台大图（lg/md/sm）用 430/860 高的两档，toast 和提醒条用 100/250 高的小立绘，
- * 不拿大图缩小显示。sizes 按这一档的显示宽度写，浏览器按屏幕像素密度选 1x 或 2x。
+ * 立绘图片地址。全身（lg/md/sm）和半身（xs/bar/chat，放大裁切）都用 430/860 高的两档透明图，
+; * sizes 按这一档的显示宽度写，浏览器按屏幕像素密度选 1x 或 2x。
  * mobileH 用来覆盖手机上的显示高度（比如引导页手机上是 262px）。
  */
 export function figureSrc(o: OutfitId, m: Mood, size: StageSize, mobileH?: number): FigureSrc {
   const { ar } = A.outfits[o][m];
-  const mini = size === "xs" || size === "bar";
-  const fileH = mini ? MINI_FILE_H : STAGE_FILE_H;
-  const suf = mini ? "-sm" : "";
+  if (isBust(size)) {
+    // 半身：图片按 1/BUST_K 放大显示，用舞台档的 430 / 860 两档，小图不糊
+    const [bd, bm] = STAGE_H[size];
+    const dh = Math.round(bd / BUST_K);
+    const mh = Math.round((mobileH ?? bm) / BUST_K);
+    const w1 = Math.round(STAGE_FILE_H[0] * ar);
+    const w2 = Math.round(STAGE_FILE_H[1] * ar);
+    return {
+      src: url(o, m, "", 0),
+      srcSet: `${url(o, m, "", 0)} ${w1}w, ${url(o, m, "-2x", 1)} ${w2}w`,
+      avifSrcSet: `${avifUrl(o, m, "", 0)} ${w1}w, ${avifUrl(o, m, "-2x", 1)} ${w2}w`,
+      sizes: `(max-width: 560px) ${Math.round(mh * ar)}px, ${Math.round(dh * ar)}px`,
+      width: Math.round(dh * ar),
+      height: dh,
+    };
+  }
+  // 全身档（lg / md / sm）
+  const fileH = STAGE_FILE_H;
+  const suf = "";
   const [hd, hm0] = STAGE_H[size];
   const hm = mobileH ?? hm0;
   const w1 = Math.round(fileH[0] * ar);
   const w2 = Math.round(fileH[1] * ar);
-  const i0 = mini ? 2 : 0;
+  const i0 = 0;
   return {
     src: url(o, m, suf, i0),
     srcSet: `${url(o, m, suf, i0)} ${w1}w, ${url(o, m, suf + "-2x", i0 + 1)} ${w2}w`,
     avifSrcSet: `${avifUrl(o, m, suf, i0)} ${w1}w, ${avifUrl(o, m, suf + "-2x", i0 + 1)} ${w2}w`,
-    sizes: `(max-width: 560px) ${Math.round(hm * ar)}px, ${Math.round(hd * ar)}px`,
+    sizes: `${BIG_H[size] ? `(min-width: 1280px) and (min-height: 820px) ${Math.round(BIG_H[size]! * ar)}px, ` : ""}(max-width: 560px) ${Math.round(hm * ar)}px, ${Math.round(hd * ar)}px`,
     width: Math.round(hd * ar),
     height: hd,
   };
 }
+
+/** 大屏（宽 ≥1280、高 ≥820）上整页场景的全身像放大到的高度，和 rinne.css 里的媒体查询一致 */
+const BIG_H: Partial<Record<StageSize, number>> = { lg: 500, md: 380 };
 
 /** 圆形头像（64 / 128） */
 export function avatarSrc(o: OutfitId, m: Mood = "welcome") {

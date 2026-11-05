@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 
 APP = "http://127.0.0.1:3100"
-MOCK = "http://127.0.0.1:9100"
+MOCK = os.environ.get("MOCK", "http://127.0.0.1:9100")
 OK_HOSTS = {"127.0.0.1:3100", "127.0.0.1:3102", "127.0.0.1:3105"}
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHOTS = os.path.join(ROOT, "tests", "shots")

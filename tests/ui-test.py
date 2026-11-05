@@ -3,7 +3,7 @@ import os, sys, json, time
 from playwright.sync_api import sync_playwright, expect
 
 APP = "http://127.0.0.1:3100"
-MOCK = "http://127.0.0.1:9100"
+MOCK = os.environ.get("MOCK", "http://127.0.0.1:9100")
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots")
 os.makedirs(OUT, exist_ok=True)
 results = []
@@ -40,7 +40,7 @@ with sync_playwright() as p:
     page.click("button:has-text('下一步')")
     page.wait_for_selector("text=第 2 步 / 共 4 步")
     ok("进入第 2 步", True)
-    ok("显示 /v1 提示", page.get_by_text("结尾带不带 /v1 都行").first.is_visible())
+    ok("显示 /v1 提示", page.get_by_text("结尾带不带 /v1 都可以").first.is_visible())
     ok("显示 Key 加密提示", page.get_by_text("加密").first.is_visible())
     for name in ["OpenAI", "Claude", "Gemini", "OpenAI 兼容"]:
         ok(f"供应商卡片：{name}", page.locator("button span.font-semibold", has_text=name).first.is_visible())
@@ -78,11 +78,11 @@ with sync_playwright() as p:
     page.wait_for_selector("text=添加渠道")
     link = page.locator(f"a[href='{MOCK}/oa']").first
     ok("Base URL 是新标签页打开的超链接", link.count() == 1 and link.get_attribute("target") == "_blank")
-    page.click("button:has-text('测试')")
+    page.get_by_role("button", name="测试", exact=True).first.click()
     page.wait_for_selector("text=/正常 · \\d+ms/", timeout=10000)
     ok("测试延迟显示结果", True)
     page.screenshot(path=f"{OUT}/06-channels.png")
-    page.click("button:has-text('编辑')")
+    page.get_by_role("button", name="编辑", exact=True).first.click()
     page.wait_for_selector("text=编辑渠道")
     page.click("button:has-text('获取模型') >> nth=-1")
     page.wait_for_selector("text=/取回 7 个模型/", timeout=10000)
@@ -94,8 +94,8 @@ with sync_playwright() as p:
     pr.fill("3")
     page.screenshot(path=f"{OUT}/07-channel-editor.png", full_page=True)
     page.click("div[role=dialog] button:has-text('保存'), button:has-text('保存') >> nth=-1")
-    page.wait_for_selector("text=优先级 3", timeout=8000)
-    ok("保存别名和优先级", page.get_by_text("1 个别名").first.is_visible())
+    page.wait_for_selector("text=/· P3$/", timeout=8000)
+    ok("保存别名和优先级", page.get_by_text("1 别名", exact=False).first.is_visible())
     # 新建渠道
     page.click("button:has-text('添加渠道')")
     page.wait_for_selector("text=供应商")
@@ -359,7 +359,7 @@ with sync_playwright() as p:
     page.click("button:has-text('重新看引导')")
     page.wait_for_url("**/onboarding")
     page.wait_for_timeout(500)
-    ok("重新看引导进入引导页", page.get_by_text("访问密码已经设好啦").count() >= 1, page.inner_text("body")[:300])
+    ok("重新看引导进入引导页", page.get_by_text("访问密码已设好").count() >= 1, page.inner_text("body")[:300])
     page.click("button:has-text('下一步')")
     page.wait_for_selector("text=第 2 步 / 共 4 步")
     ok("已有渠道时可以直接去聊天", page.locator("button", has_text="直接去聊天").count() == 1)
@@ -373,7 +373,7 @@ with sync_playwright() as p:
     page.fill("#pw", "wrong-password")
     page.click("button:has-text('登录')")
     page.wait_for_timeout(800)
-    ok("错误密码有提示", page.locator("p.text-bad").count() == 1, page.inner_text("body")[:300])
+    ok("错误密码有提示", page.get_by_text("密码不对").count() >= 1, page.inner_text("body")[:300])
     page.fill("#pw", "ui-pass-1234")
     page.click("button:has-text('登录')")
     page.wait_for_url(APP + "/")

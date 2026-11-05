@@ -3,7 +3,8 @@
   --H: 340px;
   --sp: 10px; /* 舞台内边距 */
   --gap: 24px; /* 界面块和舞台的间距 */
-  --stage: #d8d8da;
+  /* 立绘是透明图：舞台不再是灰色方块，只在脚下留一圈淡淡的品牌色光晕 + 地面投影，人物直接站在界面上 */
+  --stage: transparent;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas: "lk stg" "rs stg";
@@ -38,7 +39,8 @@
   position: relative;
   padding: var(--sp);
   border-radius: 18px;
-  background: var(--stage);
+  /* 脚下一圈淡光：渐变完全收在舞台框内，不会被框边切出直线 */
+  background: radial-gradient(46% 16% at 50% 84%, rgb(var(--brand-rgb, 124 92 255) / 0.12), transparent 80%);
   line-height: 0;
   align-self: start;
   /* 舞台宽度：这个状态八套里最宽的那张，换装时舞台不变宽变窄 */
@@ -79,10 +81,20 @@
   display: block;
   height: var(--H);
   width: calc(var(--H) * var(--ar));
-  overflow: hidden;
   transition: width var(--rn-fade, 240ms) ease;
-  border-radius: 12px;
-  background: var(--stage, #d8d8da);
+}
+/* 地面投影：贴着脚底的一道椭圆软影，替代原图里被抠掉的影棚阴影 */
+.rn-fig:not(.rn-bust)::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -1.2%;
+  height: 4.5%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(20 16 40 / 0.22), rgb(20 16 40 / 0.08) 60%, transparent);
+  pointer-events: none;
+  z-index: 0;
 }
 /* <picture> 不占位，里面的 <img> 照旧相对 .rn-fig 定位 */
 .rn-pic { display: contents; }
@@ -95,12 +107,38 @@
   max-width: none;
   height: 100%;
   opacity: 1;
+  z-index: 1;
   transition-property: opacity;
   transition-timing-function: ease-out;
   user-select: none;
+  /* 轻微的环境投影，让抠出来的人物和卡片、底色有层次，不像贴纸 */
+  filter: drop-shadow(0 6px 12px rgb(20 16 40 / 0.10));
 }
 .rn-layer.rn-enter { opacity: 0; transition: none; }
 .rn-layer.rn-in { opacity: 1; }
+/* 旧图淡出：ease-in，前半段几乎不透明，和新图交叉时合起来不露底 */
+.rn-layer.rn-out { opacity: 0; transition-timing-function: cubic-bezier(0.55, 0, 0.9, 0.4); }
+
+/* ===== 半身（toast、提醒条、对话小场景） ===== */
+.rn-fig.rn-bust {
+  width: calc(var(--H) * 0.8);
+  overflow: hidden;
+  border-radius: 16px;
+  background: radial-gradient(80% 70% at 50% 38%, rgb(var(--brand-rgb, 124 92 255) / 0.16), rgb(var(--brand-rgb, 124 92 255) / 0.04) 70%, transparent);
+  /* 下沿渐隐：腰以下自然消失在界面里，不是一刀切 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+}
+.rn-bust .rn-layer {
+  height: calc(var(--H) / var(--k));
+  bottom: auto;
+  /* 头顶离窗口上沿约 5% */
+  top: calc(var(--H) * 0.05 - var(--H) / var(--k) * var(--ty));
+  /* 头部中心对准窗口中线 */
+  left: calc(50% - var(--H) / var(--k) * var(--lar) * var(--bx));
+  transform: none;
+  filter: none;
+}
 
 /* toast：小立绘靠右 */
 .rn-corner { width: auto; max-width: min(460px, calc(100vw - 24px)); grid-template-areas: "lk stg"; grid-template-rows: auto; }
@@ -130,6 +168,12 @@
   .rn-fig, .rn-wire, .rn-lk, .rn-rs, .rn-stg > .rn-fig { transition: none !important; }
 }
 
+/* 大屏（宽 ≥1280 且高 ≥820）：引导、登录、空对话这些整页场景把全身像放大，人物更有存在感 */
+@media (min-width: 1280px) and (min-height: 820px) {
+  .rn-lg { --H: 500px; }
+  .rn-md { --H: 380px; }
+}
+
 /* 平板（竖屏 561–1023px）：舞台稍小一点，给界面块留宽度 */
 @media (min-width: 561px) and (max-width: 1023px) {
   .rn-lg { --H: 380px; }
@@ -146,11 +190,13 @@
 }
 
 /* toast 和顶部提醒条里的小立绘 */
-.rn-fig.rn-toast-fig { --H: 96px; border-radius: 0; background: transparent; }
-.rn-fig.rn-bar-fig { --H: 84px; border-radius: 10px; }
+.rn-fig.rn-toast-fig { --H: 96px; }
+.rn-fig.rn-bar-fig { --H: 84px; border-radius: 12px; }
+.rn-fig.rn-chat-fig { --H: 150px; }
 @media (max-width: 560px) {
   .rn-fig.rn-toast-fig { --H: 84px; }
   .rn-fig.rn-bar-fig { --H: 64px; }
+  .rn-fig.rn-chat-fig { --H: 124px; }
 }
 
 /* 思考时接在她平板上的进度条 */
@@ -160,4 +206,10 @@
 @media (prefers-reduced-motion: reduce) { .rn-progress > span { animation: none; width: 100%; opacity: 0.5; } }
 
 .rn-fig.rn-wd-preview { --H: 300px; }
+
+/* ===== 对话里的小场景：内容在左，棱音半身在右，上下居中 ===== */
+.rn-inl { display: flex; align-items: center; gap: 14px; width: 100%; }
+.rn-inl > .rn-inl-body { min-width: 0; flex: 1; }
+.rn-inl > .rn-fig { flex: none; }
+@media (max-width: 560px) { .rn-inl { gap: 10px; } }
 @media (max-width: 560px) { .rn-fig.rn-wd-preview { --H: 240px; } }

@@ -3,7 +3,7 @@ import type { IChatEvent, IChatRequest, IUsage, LogEntry } from "../../types";
 import { authToken, modelAllowed, tokenDeny, type Deny, type TokenCtx } from "../tokens";
 import { captured, newCtx, type ReqCtx } from "./capture";
 import { addLog, listChannels } from "../store";
-import { persistRemoteImage, resolveImage, saveFile } from "../files";
+import { persistRemoteImage, resolveImage, saveBase64Image, saveFile } from "../files";
 import { absoluteImageUrl, publicOrigin } from "../imgurl";
 import { adapterChat, adapterImage } from "./adapters";
 import { openaiHeaders, openaiUrl } from "./adapters/openai";
@@ -411,7 +411,8 @@ async function toImageItem(
   if (im.b64) {
     // 没指定格式时保持上游原样（比如 gpt-image 默认就回 base64）
     if (format !== "url") return { b64_json: im.b64 };
-    return { url: absoluteImageUrl(await saveFile(Buffer.from(im.b64, "base64"), im.mime || "image/png"), origin) };
+    const saved = await saveBase64Image(im.b64, im.mime || "image/png");
+    return saved ? { url: absoluteImageUrl(saved, origin) } : {};
   }
   if (im.url) return { url: absoluteImageUrl(await persistRemoteImage(im.url), origin) };
   return {};

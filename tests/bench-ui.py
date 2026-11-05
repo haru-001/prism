@@ -1,6 +1,6 @@
 # 浏览器里的速度：首屏 JS 体积、页面可用时间。前提和 bench.mjs 一样（先跑过 bench.mjs setup）。
 # 用法：python3 tests/bench-ui.py [输出.json]
-import json, sys, time, statistics
+import os, json, sys, time, statistics
 from playwright.sync_api import sync_playwright
 
 APP = "http://127.0.0.1:3100"

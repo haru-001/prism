@@ -49,6 +49,8 @@ export const copy = {
     introTip: "① 换模型 点顶部 · ② 切生图 用这个开关 · ③ 快捷生图 输入 /图",
     gotIt: "知道了",
     imageStart: "已交给 {model} 出图，大约十几秒。",
+    imageEmpty: "上游说生成成功了，但没有返回图片。可以点重新生成，或换一条线路试试。",
+    textEmpty: "（模型这次没有返回任何内容）",
     firstImageTip: "出图大约需要十几秒，完成后会自动归档到图库。",
     failover: "{from} 响应异常，我已切换到备用线路 {to}，不影响继续使用。",
     autoDisabled: "{channel} 连续 {n} 次超时，我已暂停它，请求会转到其他线路。",
@@ -79,6 +81,7 @@ export const copy = {
     unsupported: "{msg}",
     unknown: "出现了意外情况：{msg}",
     firstErrorTip: "原因已经写在上面，点「去修复」我带{name}过去处理。有备用线路时，我会自动切换。",
+    firstErrorTipRetry: "原因已经写在上面，可以点「重试」再来一次。给这个模型多接一条线路，下次我会自动切换。",
     fix: "去修复",
   },
 

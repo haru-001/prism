@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { figureSrc, moodAlt, moodMeta, type Mood, type OutfitId, type StageSize } from "@/lib/rinne";
+import { BUST_K, bustMeta, figureSrc, isBust, moodAlt, moodMeta, type Mood, type OutfitId, type StageSize } from "@/lib/rinne";
 import { preloadFigure } from "@/lib/client/rinne-load";
 import { useRinne } from "./RinneProvider";
 
@@ -18,12 +18,14 @@ interface Layer {
 /**
  * 一张棱音立绘。换装或换状态时：
  * 1. 先在后台把新图下载并 decode 完（旧图一直留在原处）
- * 2. 新图叠在旧图上方，从透明淡入（240ms），旧图全程不透明，所以不会闪白
+ * 2. 新图叠在旧图上方，从透明淡入（240ms）；旧图同时淡出，但曲线更晚（ease-in），交叉的瞬间两张合起来仍接近不透明，
+ *    不闪底色；立绘是透明图，旧图不淡出的话会从新图的空白处透出来形成重影
  * 3. 淡入结束后移除旧图
  * 连续快速切换时只认最后一次：较早的请求 decode 完了也不会再挂上去。
  * 关掉动效（或系统开了「减少动态效果」）时，decode 完直接替换。
  * 容器用固定高度 + 按比例算出的宽度占位，图片加载前后布局不跳。
  * 每张图按自己的比例、底边居中摆放，换装时新旧两张宽度不同也不会被拉伸。
+ * 半身档（xs / bar / chat）：图片放大到 1/BUST_K，按头顶和头部中心对齐，只露出头顶到腰这一段，下沿渐隐。
  */
 export function RinneFigure({
   mood,
@@ -109,18 +111,23 @@ export function RinneFigure({
   const shownTop = [...layers].reverse().find((l) => l.phase !== "enter") ?? top;
   // 容器宽度跟目标这张图（不同服装的同一状态动作不同、比例不同），宽度变化有过渡
   const meta = moodMeta(top.outfit, top.mood);
+  const bust = isBust(size);
+  // 正在淡入的那层之下的旧图同时淡出（立绘是透明图，旧图不淡出会从新图的空白处透出来，形成重影）
+  const inAt = layers.findIndex((l) => l.phase === "in");
 
   return (
     <span
-      className={`rn-fig ${standalone ? `rn-${size}` : ""} ${className}`}
+      className={`rn-fig ${bust ? "rn-bust" : ""} ${standalone ? `rn-${size}` : ""} ${className}`}
       data-outfit={shownTop.outfit}
       data-mood={shownTop.mood}
       data-pending={top.phase === "enter" ? `${top.outfit}/${top.mood}` : undefined}
-      style={{ "--ar": meta.ar, "--rn-fade": r.animate ? `${FADE_MS}ms` : "0ms" } as React.CSSProperties}
+      style={{ "--ar": meta.ar, "--rn-fade": r.animate ? `${FADE_MS}ms` : "0ms", ...(bust ? { "--k": BUST_K } : {}) } as React.CSSProperties}
     >
       {layers.map((l, i) => {
         const s = figureSrc(l.outfit, l.mood, size, mobileH);
         const first = i === 0 && l.key === 0;
+        // 半身档：每层按自己这张图的头顶 / 头部中心定位（新旧两张动作不同）
+        const lb = bust ? { ...bustMeta(l.outfit, l.mood), ar: moodMeta(l.outfit, l.mood).ar } : null;
         return (
           // <picture>：支持 AVIF 的浏览器取 AVIF（小约三成），其余取 WebP；两组都是同样的宽度档
           <picture key={l.key} className="rn-pic">
@@ -138,8 +145,8 @@ export function RinneFigure({
               decoding="async"
               loading={first && !priority ? "lazy" : "eager"}
               fetchPriority={first && priority ? "high" : undefined}
-              className={`rn-layer ${l.phase === "enter" ? "rn-enter" : l.phase === "in" ? "rn-in" : ""}`}
-              style={{ transitionDuration: r.animate ? `${FADE_MS}ms` : "0ms" }}
+              className={`rn-layer ${l.phase === "enter" ? "rn-enter" : l.phase === "in" ? "rn-in" : inAt > i ? "rn-out" : ""}`}
+              style={{ transitionDuration: r.animate ? `${FADE_MS}ms` : "0ms", ...(lb ? { "--ty": lb.ty, "--bx": lb.bx, "--lar": lb.ar } : {}) } as React.CSSProperties}
               ref={l.phase === "enter" ? (el) => onReady(l.key, el) : undefined}
               onTransitionEnd={l.phase === "in" ? () => finish(l.key) : undefined}
               data-rinne-img={`${l.outfit}/${l.mood}`}

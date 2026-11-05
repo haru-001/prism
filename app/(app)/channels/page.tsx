@@ -121,7 +121,7 @@ export default function ChannelsPage() {
           </div>
         }
       />
-      <div className="mx-auto max-w-4xl space-y-3 px-4 py-6 md:px-8">
+      <div className="mx-auto max-w-5xl px-4 py-6 md:px-8">
         {!channels.length && (
           <Empty text={copy.channels.empty}>
             <button className="btn-primary" onClick={() => setEditing({ ch: null })}>
@@ -129,75 +129,79 @@ export default function ChannelsPage() {
             </button>
           </Empty>
         )}
-        {channels.map((ch) => {
-          const n = new Set([...ch.models, ...Object.keys(ch.mapping || {})]).size;
-          const dim = !ch.enabled || ch.autoDisabled;
-          return (
-            <div key={ch.id} className={`card p-4 ${dim ? "bg-card/60" : ""}`}>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <ProviderLogo type={ch.type} size={30} dim={dim} />
-                <b className={`truncate ${dim ? "text-muted" : ""}`}>{ch.name}</b>
-                <StatusBadge ch={ch} />
-                <div className="ml-auto flex items-center gap-2" title={ch.enabled ? "点击停用" : "点击启用"}>
-                  <span className="text-xs text-muted">{ch.enabled ? "启用" : "停用"}</span>
-                  <Toggle on={ch.enabled} onChange={(v) => setEnabled(ch, v)} />
-                </div>
-              </div>
-              <div className="mt-2 min-w-0">
-                <a
-                  href={href(ch.baseUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1 break-all font-mono text-sm text-acc-ink hover:underline"
-                  title={`在新标签页打开（实际请求 ${ch.endpoint}）`}
-                >
-                  {ch.baseUrl}
-                  <ExternalLink size={13} className="shrink-0" />
-                </a>
-              </div>
-              <div className="mt-1 text-xs text-muted">
-                {ch.keyHint} · {n} 个模型 · 优先级 {ch.priority}
-                {Object.keys(ch.mapping || {}).length > 0 && <> · {Object.keys(ch.mapping).length} 个别名</>}
-              </div>
-              {ch.status && !ch.status.ok && !ch.autoDisabled && ch.status.message && (
-                <div className="mt-2 break-all rounded-lg bg-bad/10 px-2.5 py-1.5 font-mono text-xs text-bad">{ch.status.message}</div>
-              )}
-              {ch.autoDisabled && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-soft px-3 py-2 text-xs">
-                  <IdolAvatar size={22} />
-                  <span className="flex-1">{fill(copy.channels.autoDisabledTip, { n: 3 })}</span>
-                  <button className="btn-ghost btn-sm" onClick={() => test(ch)} disabled={testing[ch.id]}>
-                    {testing[ch.id] && <Loader2 size={12} className="animate-spin" />} 重新测试
-                  </button>
-                </div>
-              )}
-              {ch.models.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {ch.models.slice(0, 8).map((m) => (
-                    <span key={m} className="rounded-md bg-soft px-1.5 py-0.5 font-mono text-[11px] text-muted">
-                      {m}
+        {channels.length > 0 && (
+          <div className="card divide-y divide-rule overflow-hidden p-0">
+            {channels.map((ch) => {
+              const n = new Set([...ch.models, ...Object.keys(ch.mapping || {})]).size;
+              const aliases = Object.keys(ch.mapping || {}).length;
+              const dim = !ch.enabled || ch.autoDisabled;
+              const errMsg = ch.status && !ch.status.ok && !ch.autoDisabled ? ch.status.message : "";
+              const modelTip = ch.models.length ? ch.models.join("\n") : "还没有模型";
+              return (
+                <div key={ch.id} className={`group px-3 py-2.5 sm:px-4 ${dim ? "bg-card/60" : "hover:bg-hover/50"}`}>
+                  {/* 一行一个渠道：图标 · 名称和状态 · 地址 · 模型数/优先级 · 开关 · 操作 */}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <ProviderLogo type={ch.type} size={26} dim={dim} />
+                    <div className="flex w-36 shrink-0 flex-col sm:w-44">
+                      <b className={`truncate text-sm leading-5 ${dim ? "text-muted" : ""}`} title={ch.name}>
+                        {ch.name}
+                      </b>
+                      <StatusBadge ch={ch} />
+                    </div>
+                    <a
+                      href={href(ch.baseUrl)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hidden min-w-0 flex-1 items-center gap-1 font-mono text-xs text-acc-ink hover:underline md:flex"
+                      title={`${ch.baseUrl}\n在新标签页打开（实际请求 ${ch.endpoint}）`}
+                    >
+                      <span className="truncate">{ch.baseUrl}</span>
+                      <ExternalLink size={12} className="shrink-0 opacity-60" />
+                    </a>
+                    <span className="hidden shrink-0 text-xs whitespace-nowrap text-muted lg:inline" title={modelTip}>
+                      {ch.keyHint}
                     </span>
-                  ))}
-                  {ch.models.length > 8 && <span className="px-1 text-[11px] text-muted">+{ch.models.length - 8}</span>}
+                    <span className="ml-auto shrink-0 text-xs whitespace-nowrap text-muted md:ml-0" title={modelTip}>
+                      {n} 模型{aliases > 0 && ` · ${aliases} 别名`} · P{ch.priority}
+                    </span>
+                    <div className="shrink-0" title={ch.enabled ? "点击停用" : "点击启用"}>
+                      <Toggle on={ch.enabled} onChange={(v) => setEnabled(ch, v)} />
+                    </div>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button className="btn-ghost btn-sm px-1.5" title="获取模型" aria-label="获取模型" onClick={() => setEditing({ ch, fetch: true })}>
+                        <CloudDownload size={14} />
+                      </button>
+                      <button className="btn-ghost btn-sm px-1.5" title="测试" aria-label="测试" onClick={() => test(ch)} disabled={testing[ch.id]}>
+                        {testing[ch.id] ? <Loader2 size={14} className="animate-spin" /> : <Gauge size={14} />}
+                      </button>
+                      <button className="btn-ghost btn-sm px-1.5" title="编辑" aria-label="编辑" onClick={() => setEditing({ ch })}>
+                        <Pencil size={14} />
+                      </button>
+                      <button className="btn-ghost btn-sm px-1.5 text-bad" title="删除" aria-label="删除" onClick={() => remove(ch)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  {/* 只有出问题时才多一行提示 */}
+                  {errMsg && (
+                    <div className="mt-1.5 truncate rounded-md bg-bad/10 px-2 py-1 font-mono text-[11px] text-bad" title={errMsg}>
+                      {errMsg}
+                    </div>
+                  )}
+                  {ch.autoDisabled && (
+                    <div className="mt-1.5 flex items-center gap-2 rounded-md bg-soft px-2 py-1 text-xs">
+                      <IdolAvatar size={18} />
+                      <span className="min-w-0 flex-1 truncate">{fill(copy.channels.autoDisabledTip, { n: 3 })}</span>
+                      <button className="btn-ghost btn-sm" onClick={() => test(ch)} disabled={testing[ch.id]}>
+                        {testing[ch.id] && <Loader2 size={12} className="animate-spin" />} 重新测试
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button className="btn-primary btn-sm" onClick={() => setEditing({ ch, fetch: true })}>
-                  <CloudDownload size={13} /> 获取模型
-                </button>
-                <button className="btn-ghost btn-sm" onClick={() => test(ch)} disabled={testing[ch.id]}>
-                  {testing[ch.id] ? <Loader2 size={13} className="animate-spin" /> : <Gauge size={13} />} 测试
-                </button>
-                <button className="btn-ghost btn-sm" onClick={() => setEditing({ ch })}>
-                  <Pencil size={13} /> 编辑
-                </button>
-                <button className="btn-danger btn-sm ml-auto" onClick={() => remove(ch)}>
-                  <Trash2 size={13} /> 删除
-                </button>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        )}
       </div>
       <ChannelEditor
         open={!!editing}

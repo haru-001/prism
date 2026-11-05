@@ -3,7 +3,7 @@ import { captured, newCtx, type ReqCtx } from "@/lib/server/relay/capture";
 import { REPLAY_TOKEN, WEB_TOKEN } from "@/lib/server/tokens";
 import { addGallery, addLog, getSettings } from "@/lib/server/store";
 import { describeError, readJSON } from "@/lib/server/api";
-import { persistRemoteImage, resolveImage, saveFile } from "@/lib/server/files";
+import { persistRemoteImage, resolveImage, saveBase64Image } from "@/lib/server/files";
 import { adapterImage } from "@/lib/server/relay/adapters";
 import { logFailure, withFailover, type FailoverError } from "@/lib/server/relay/router";
 
@@ -47,10 +47,12 @@ async function handle(req: Request, ctx: ReqCtx) {
     const urls = (
       await Promise.all(
         r.value.map((im) =>
-          im.b64 ? saveFile(Buffer.from(im.b64, "base64"), im.mime || "image/png") : im.url ? persistRemoteImage(im.url) : null,
+          im.b64 ? saveBase64Image(im.b64, im.mime || "image/png") : im.url ? persistRemoteImage(im.url) : null,
         ),
       )
     ).filter((u): u is string => !!u);
+    // 上游说成功、但一张能用的图都没有：当成失败返回，前端显示错误卡片和重试，而不是一条空消息
+    if (!urls.length) throw Object.assign(new Error("上游返回成功，但没有可用的图片（格式无法识别或图片地址失效）"), { notices: r.notices });
     await addGallery(urls.map((url) => ({ url, prompt: b.prompt.trim(), model: b.model, size: b.size, convId: b.convId })));
     const latencyMs = Date.now() - startedAt;
     await addLog({

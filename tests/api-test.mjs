@@ -357,7 +357,7 @@ async function main() {
   r = await ui("/");
   check("重置后 / 跳到 /onboarding", r.status === 307, r.status);
   r = await ui("/onboarding");
-  check("引导页显示「密码已设好」", String(r.body).includes("访问密码已经设好啦"), null);
+  check("引导页显示「密码已设好」", String(r.body).includes("访问密码已设好"), null);
   await ui("/api/onboarding", { method: "PUT", body: { completed: true } });
   await ui("/api/auth/logout", { method: "POST" });
   cookie = "";
