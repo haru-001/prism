@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Empty, PageHeader, toast } from "@/components/ui";
 import { api, fmtMs, fmtTime } from "@/lib/client/api";
-import { copy } from "@/lib/copy";
+import { copy, fill } from "@/lib/copy";
 import dynamic from "next/dynamic";
 
 // 详情和重放按需加载，列表首屏不带这部分代码
@@ -13,6 +13,8 @@ const LogDetailView = dynamic(() => import("@/components/LogDetailView"), {
   loading: () => <div className="shimmer h-24 rounded-lg" />,
 });
 import type { LogEntry } from "@/lib/types";
+import { RinnePageHead } from "@/components/rinne/RinnePageHead";
+
 
 const SOURCE: Record<LogEntry["source"], string> = {
   ui: "聊天页",
@@ -95,6 +97,13 @@ export default function LogsPage() {
         }
       />
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-8">
+        {logs && logs.length > 0 && (
+          <div className="mb-6">
+            <RinnePageHead page="logs" tone={stats.err ? "bad" : "normal"}>
+              {fill(copy.logs.say, { total: stats.total, err: stats.err })}
+            </RinnePageHead>
+          </div>
+        )}
         {logs && logs.length > 0 && (
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[

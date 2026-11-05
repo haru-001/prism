@@ -35,6 +35,8 @@ PAD = 14
 PROP_DIFF = {"summer/waiting", "sport/waiting"}
 # 高度参照：默认用旧图同一状态；旧图是跳起来的，改用同服装 welcome 的身高
 REF = {"sport/success": "welcome"}
+# 全新的服装没有旧图：按另一套服装同一状态的人物高度和位置对齐
+REFO = {"winter": "suit"}
 # 连线落点的搜索范围（人物高度比例），默认 42%；抬腿的姿势缩小，免得连到脚上
 BAND = {"sport/thinking": 0.3}
 
@@ -84,6 +86,14 @@ def main():
     only = set(sys.argv[4].split(",")) if len(sys.argv) > 4 else None
     J = json.load(open(meta))
     for o in outfits:
+        if o not in J["outfits"]:
+            # 新服装：照参照服装的结构建一份空条目，哈希由后面的步骤填
+            import copy
+            base = copy.deepcopy(J["outfits"][REFO[o]])
+            for m in MOODS:
+                base[m].update(f=[""] * 6, a=[""] * 4, alpha=0, avatarAlpha=0)
+            base["thumb"] = ["", ""]
+            J["outfits"][o] = base
         for m in MOODS:
             if only and f"{o}/{m}" not in only:
                 continue
@@ -101,7 +111,7 @@ def main():
             x0, y0, x1, y1 = bbox(A)
             # 旧图同一状态的人物位置
             ref = REF.get(f"{o}/{m}", m)
-            old = np.asarray(Image.open(os.path.join(OLD, o, f"{ref}.png")).convert("RGBA"))[..., 3]
+            old = np.asarray(Image.open(os.path.join(OLD, REFO.get(o, o), f"{ref}.png")).convert("RGBA"))[..., 3]
             _, oy0, _, oy1 = bbox(old)
             s = (oy1 - oy0) / (y1 - y0)
             cut = rgba.crop((x0, y0, x1, y1))
@@ -139,6 +149,7 @@ def main():
             sq = Image.new("RGBA", (side, side), (0, 0, 0, 0))
             sq.paste(canvas.crop((max(0, bx0), by0, min(W, bx0 + side), by0 + side)), (max(0, -bx0), 0))
             d = os.path.join(root, o)
+            os.makedirs(d, exist_ok=True)
             e["f"][4] = write(d, f"{m}-avatar", enc(resize_rgba(sq, (64, 64))), "webp")
             e["f"][5] = write(d, f"{m}-avatar-2x", enc(resize_rgba(sq, (128, 128))), "webp")
             e["avatarAlpha"] = 1

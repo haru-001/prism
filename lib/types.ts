@@ -219,8 +219,10 @@ export interface Settings {
   defaultImageModel?: string;
   defaultSystem: string;
   temperature: number;
-  /** 棱音的服装（衣柜里八套之一） */
-  rinneOutfit?: "suit" | "gown" | "summer" | "home" | "trench" | "qipao" | "bridal" | "sport";
+  /** 棱音的服装（衣柜里九套之一） */
+  rinneOutfit?: "suit" | "gown" | "summer" | "home" | "trench" | "qipao" | "bridal" | "sport" | "winter";
+  /** 按时间、季节自动换装（衣柜里选的那套作为工作日白天的默认） */
+  rinneAuto?: boolean;
   /** 换装动效：跟随系统 / 开 / 关 */
   rinneMotion?: "system" | "on" | "off";
   /** 是否在界面里显示棱音的立绘 */

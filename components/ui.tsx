@@ -1,5 +1,6 @@
 "use client";
 import { RinneFigure } from "./rinne/RinneFigure";
+import { useRinne } from "./rinne/RinneProvider";
 
 import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
@@ -96,11 +97,17 @@ export function IdolSay({ children, className = "", size = 36 }: { children: Rea
   );
 }
 
+/** 空白页的棱音：显示立绘时用「静候」的半身像，关掉时退回头像 */
+function EmptyFigure() {
+  const { show } = useRinne();
+  return show ? <RinneFigure mood="waiting" size="chat" standalone className="rn-empty-fig" /> : <IdolAvatar size={88} />;
+}
+
 /** 空白页：棱音 + 一句话 */
 export function Empty({ text, children }: { text: string; children?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-      <IdolAvatar size={88} />
+      <EmptyFigure />
       <p className="max-w-sm text-sm leading-relaxed text-muted">{text}</p>
       {children}
     </div>
@@ -124,11 +131,16 @@ export function PageHeader({ title, sub, right }: { title: string; sub?: string;
 }
 
 // ===== 轻量 toast =====
-type ToastItem = { id: number; text: string; kind: "ok" | "err" | "info" };
+type ToastItem = { id: number; text: string; kind: "ok" | "err" | "info"; fig?: boolean };
+/** 同一类 toast 30 秒内只有第一条配立绘，连续触发时后面的只显示文字，不挤满屏幕 */
+const lastFig: Record<ToastItem["kind"], number> = { ok: 0, err: 0, info: 0 };
 const listeners = new Set<(t: ToastItem) => void>();
 let seq = 0;
 export function toast(text: string, kind: ToastItem["kind"] = "info") {
-  const t = { id: ++seq, text, kind };
+  const now = Date.now();
+  const fig = now - lastFig[kind] > 30_000;
+  if (fig) lastFig[kind] = now;
+  const t = { id: ++seq, text, kind, fig };
   listeners.forEach((l) => l(t));
 }
 
@@ -150,14 +162,14 @@ export function Toaster() {
         <div
           key={t.id}
           role="status"
-          className={`pointer-events-auto flex items-end gap-1 overflow-hidden rounded-2xl border border-rule bg-card pr-4 text-sm shadow-lg ${
+          className={`pointer-events-auto flex items-end gap-1 overflow-hidden rounded-2xl border border-rule bg-card pr-4 text-sm shadow-lg ${t.fig ? "" : "pl-4"} ${
             t.kind === "err" ? "text-bad" : t.kind === "ok" ? "text-ok" : "text-ink"
           }`}
           data-testid="toast"
         >
           {/* toast 配一张小立绘（150px 档的专用小图，不拿大图缩小） */}
-          <RinneFigure mood={t.kind === "err" ? "error" : t.kind === "ok" ? "success" : "guide"} size="xs" className="rn-toast-fig shrink-0" standalone />
-          <span className="mb-4 max-w-[60vw] sm:max-w-xs">{t.text}</span>
+          {t.fig ? <RinneFigure mood={t.kind === "err" ? "error" : t.kind === "ok" ? "success" : "guide"} size="xs" className="rn-toast-fig shrink-0" standalone /> : null}
+          <span className={`max-w-[60vw] sm:max-w-xs ${t.fig ? "mb-4" : "my-3"}`}>{t.text}</span>
         </div>
       ))}
     </div>

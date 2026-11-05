@@ -11,7 +11,7 @@ import { useRinne } from "./RinneProvider";
  *  - 其余内容（children）在界面块下方；手机宽度下她照样全身站在右边，其余内容移到她下方
  * ly 是界面块里连线的高度（从界面块顶端算）。界面块的上边距按连接点算，线就是水平的。
  * 「显示棱音」关掉时只留下界面块和其余内容。
- * 舞台宽度按这个状态八套里最宽的一张，图片横向偏移让头部对齐（stageFit），换装时人物不左右跳。
+ * 舞台宽度按这个状态九套里最宽的一张，图片横向偏移让头部对齐（stageFit），换装时人物不左右跳。
  * steady：居中排版的页面（登录、引导、休眠）用，按最低的连接点预留界面块下方的高度，
  * 整块高度不随连接点变，换装或换状态时舞台不上下跳。
  */
@@ -63,7 +63,7 @@ export function RinneScene({
   const fit = stageFit(outfit, mood);
   return (
     <div
-      className={`rn-scn rn-${size} ${corner ? "rn-corner" : ""} ${bar ? "rn-bar" : ""} ${mobfull ? "rn-mobfull" : ""} ${guideMobile ? "rn-gd" : ""} ${steady ? "rn-steady" : ""} ${children ? "" : "rn-nors"} ${className}`}
+      className={`rn-scn rn-${size} ${corner ? "rn-corner" : ""} ${bar ? "rn-bar" : ""} ${mobfull ? "rn-mobfull" : ""} ${guideMobile ? "rn-gd" : ""} ${steady ? "rn-steady" : ""} ${animate ? "" : "rn-still"} ${children ? "" : "rn-nors"} ${className}`}
       style={{ "--ar": m.ar, "--hx": m.hx, "--hy": m.hy, "--arw": fit.arw, "--ox": fit.ox, "--hymax": HY_MAX, "--ly": `${ly}px`, "--rn-fade": animate ? "240ms" : "0ms" } as React.CSSProperties}
       data-testid={testId}
       data-rinne-scene={mood}

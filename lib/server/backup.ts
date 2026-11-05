@@ -152,6 +152,7 @@ const SETTING_LABEL: Record<string, string> = {
   rinneOutfit: "棱音的服装",
   rinneMotion: "换装动效",
   rinneShow: "显示棱音",
+  rinneAuto: "自动换装",
 };
 function show(v: unknown) {
   if (v === undefined || v === null || v === "") return "（空）";

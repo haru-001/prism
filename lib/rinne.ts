@@ -1,5 +1,5 @@
 /**
- * 棱音的形象：八套服装 × 七个状态的立绘。
+ * 棱音的形象：九套服装 × 七个状态的立绘，外加每套服装六张功能页页首像（图库、渠道、用量、令牌、日志、设置）。
  *
  * 图片都在 public/img/rinne/ 下，同域加载，文件名带内容哈希（可以长期缓存）。
  * 每套服装的每个状态是单独设计的动作，所以画布比例和连接点也按「服装 + 状态」各记一份，
@@ -9,7 +9,7 @@
 import assets from "./rinne-assets.json";
 
 export type Mood = "welcome" | "guide" | "thinking" | "success" | "error" | "imaging" | "waiting";
-export type OutfitId = "suit" | "gown" | "summer" | "home" | "trench" | "qipao" | "bridal" | "sport";
+export type OutfitId = "suit" | "gown" | "summer" | "home" | "trench" | "qipao" | "bridal" | "sport" | "winter";
 export type RinneMotion = "system" | "on" | "off";
 /** 舞台尺寸档：lg 430px、md 340px、sm 290px（手机 300 / 270 / 240）全身；xs 是 toast（96，手机 84）、bar 是顶部提醒条（84，手机 64）、chat 是对话里的小场景（150，手机 124），这三档是半身 */
 export type StageSize = "lg" | "md" | "sm" | "xs" | "bar" | "chat";
@@ -21,14 +21,15 @@ export function isBust(size: StageSize) {
 export const MOODS: Mood[] = ["welcome", "guide", "thinking", "success", "error", "imaging", "waiting"];
 
 export const OUTFITS: { id: OutfitId; name: string; note: string }[] = [
-  { id: "suit", name: "干练职业装", note: "默认" },
+  { id: "suit", name: "干练职业装", note: "真丝衬衫 · 铅笔裙" },
   { id: "gown", name: "晚会礼服", note: "午夜蓝挂脖露背长裙" },
   { id: "summer", name: "清爽夏季", note: "露腰背心 · 高腰牛仔短裤" },
-  { id: "home", name: "居家睡衣", note: "深夜加班" },
-  { id: "trench", name: "秋日风衣", note: "出门在外" },
-  { id: "qipao", name: "新中式", note: "节日" },
-  { id: "bridal", name: "婚纱", note: "蕾丝露背" },
+  { id: "home", name: "居家睡衣", note: "缎面吊带 · 深夜加班" },
+  { id: "trench", name: "秋日风衣", note: "风衣 · 针织短裙" },
+  { id: "qipao", name: "新中式", note: "无袖改良旗袍" },
+  { id: "bridal", name: "婚纱", note: "一字肩鱼尾" },
   { id: "sport", name: "运动套装", note: "运动背心 · 紧身短裤" },
+  { id: "winter", name: "冬日针织", note: "针织裙 · 过膝靴" },
 ];
 
 export const DEFAULT_OUTFIT: OutfitId = "suit";
@@ -42,14 +43,15 @@ export function isMotion(v: unknown): v is RinneMotion {
 
 /** 每套服装每个状态的动作说明，做图片 alt */
 const ALT: Record<OutfitId, Record<Mood, string>> = {
-  suit: { welcome: "挥手打招呼", guide: "摊手示意", thinking: "低头看平板", success: "比 OK", error: "拿着手机示意", imaging: "拿着相机", waiting: "抱着平板看手表" },
+  suit: { welcome: "挥手打招呼", guide: "掌心向上示意", thinking: "看着平板思考", success: "比 OK", error: "举着手机示意", imaging: "拿着相机", waiting: "抱着平板看手表" },
   gown: { welcome: "回眸举杯致意", guide: "掌心向上引向一侧", thinking: "手指轻点下巴", success: "轻轻鼓掌", error: "拿着手机略带歉意", imaging: "拿着卡片相机", waiting: "看腕表静候" },
   summer: { welcome: "双手挥舞", guide: "蹦一步回头指路", thinking: "咬着吸管看手机", success: "敬礼比胜利", error: "双手合十道歉", imaging: "举着拍立得", waiting: "坐在保温箱上扇扇子" },
-  home: { welcome: "抱着靠垫挥手", guide: "拿着平板示意", thinking: "窝在懒人沙发看电脑", success: "坐着伸懒腰", error: "裹着毯子拿手机", imaging: "坐着用平板画画", waiting: "端着茶杯打哈欠" },
-  trench: { welcome: "一手插兜一手挥", guide: "侧身回头指路", thinking: "边走边看手机", success: "竖大拇指", error: "把手机递出来给你看", imaging: "拿着胶片相机", waiting: "撑着透明伞等人" },
-  qipao: { welcome: "作揖行礼", guide: "团扇指引", thinking: "托腮执笔", success: "浅笑点头", error: "轻掩口略带歉意", imaging: "执毛笔作画", waiting: "捧着茶盏静候" },
-  bridal: { welcome: "捧花微笑挥手", guide: "转身回头示意", thinking: "低头看誓词卡", success: "抛捧花", error: "拿着手机略带歉意", imaging: "举着相框", waiting: "侧身整理头纱" },
-  sport: { welcome: "边跑边挥手", guide: "伸手指方向", thinking: "拉伸时看运动手表", success: "举拳庆祝", error: "搭着毛巾举手机", imaging: "举着运动相机", waiting: "坐在跳箱上喝水" },
+  home: { welcome: "抱着靠垫挥手", guide: "拿着平板指路", thinking: "窝在懒人沙发看电脑", success: "坐在高脚凳上伸懒腰", error: "披着毯子举手机", imaging: "坐着用平板画画", waiting: "端着茶杯打哈欠" },
+  trench: { welcome: "一手插兜一手挥", guide: "回头指路", thinking: "边走边看手机", success: "竖大拇指", error: "把手机递出来给你看", imaging: "拿着胶片相机", waiting: "撑着黑伞等人" },
+  qipao: { welcome: "抱拳行礼", guide: "红团扇指引", thinking: "托腮执笔", success: "执折扇浅笑", error: "掩口举手机", imaging: "在折扇上作画", waiting: "捧着茶盏静候" },
+  bridal: { welcome: "捧花微笑挥手", guide: "回眸示意", thinking: "低头看誓词卡", success: "抛捧花", error: "举着手机略带歉意", imaging: "举着相框", waiting: "整理头纱" },
+  sport: { welcome: "边跑边挥手", guide: "伸手指方向", thinking: "拉伸时看运动手表", success: "跳起来握拳", error: "搭着毛巾举手机", imaging: "举着运动相机", waiting: "坐在跳箱上喝水" },
+  winter: { welcome: "端着咖啡挥手", guide: "比着手势指路", thinking: "看手机思考", success: "跳起来比耶", error: "举着手机示意", imaging: "举着拍立得", waiting: "坐在长椅上捧着咖啡" },
 };
 export function moodAlt(o: OutfitId, m: Mood) {
   return "棱音" + ALT[o][m];
@@ -58,9 +60,10 @@ export function moodAlt(o: OutfitId, m: Mood) {
 type MoodMeta = { ar: number; hx: number; hy: number };
 /** f：WebP 的哈希 [舞台1x, 舞台2x, 小立绘1x, 小立绘2x, 头像1x, 头像2x]；a：AVIF 的哈希 [舞台1x, 舞台2x, 小立绘1x, 小立绘2x] */
 type Entry = MoodMeta & { bx: number; ty?: number; f: string[]; a: string[] };
+type PageEntry = { ar: number; hx: number; hy: number; bx: number; f: string; a: string };
 const A = assets as unknown as {
-  tiers: { stage: [number, number]; mini: [number, number] };
-  outfits: Record<OutfitId, Record<Mood, Entry> & { thumb: string[] }>;
+  tiers: { stage: [number, number]; mini: [number, number]; page?: number };
+  outfits: Record<OutfitId, Record<Mood, Entry> & { thumb: string[]; pages?: Partial<Record<PageId, PageEntry>> }>;
 };
 
 /** 这套服装这个状态的画布比例（宽/高）和连接点（占宽、高的比例） */
@@ -70,8 +73,8 @@ export function moodMeta(o: OutfitId, m: Mood): MoodMeta {
 }
 
 /**
- * 换装时舞台不动：同一状态下八套服装共用一个舞台宽度（取最宽那张），
- * 图片在舞台里横向偏移，让头部中心落在同一条竖线上（八套头部位置的平均值，偏移不会让图片出舞台）。
+ * 换装时舞台不动：同一状态下九套服装共用一个舞台宽度（取最宽那张），
+ * 图片在舞台里横向偏移，让头部中心落在同一条竖线上（九套头部位置的平均值，偏移不会让图片出舞台）。
  * 所有状态里最低的连接点（hyMax）给居中排版的页面预留高度，换装或换状态时整块不上下跳。
  */
 const OUTFIT_IDS = Object.keys(A.outfits) as OutfitId[];
@@ -181,8 +184,9 @@ export function figureSrc(o: OutfitId, m: Mood, size: StageSize, mobileH?: numbe
 /** 大屏（宽 ≥1280、高 ≥820）上整页场景的全身像放大到的高度，和 rinne.css 里的媒体查询一致 */
 const BIG_H: Partial<Record<StageSize, number>> = { lg: 500, md: 380 };
 
-/** 圆形头像（64 / 128） */
-export function avatarSrc(o: OutfitId, m: Mood = "welcome") {
+/** 圆形头像（64 / 128）：界面里只用欢迎姿势的头像，其余状态不再单独出图（省体积） */
+export function avatarSrc(o: OutfitId, _m: Mood = "welcome") { // eslint-disable-line @typescript-eslint/no-unused-vars
+  const m: Mood = "welcome";
   return { src: url(o, m, "-avatar", 4), srcSet: `${url(o, m, "-avatar", 4)} 1x, ${url(o, m, "-avatar-2x", 5)} 2x` };
 }
 
@@ -192,19 +196,83 @@ export function thumbSrc(o: OutfitId) {
   return { src: `/img/rinne/wardrobe/${o}.${t[0]}.webp`, srcSet: `/img/rinne/wardrobe/${o}.${t[0]}.webp 1x, /img/rinne/wardrobe/${o}-2x.${t[1]}.webp 2x` };
 }
 
-/** 存在 cookie 里的形象设置（登录页、引导页还没有设置可读时用），格式 outfit|motion|show */
+/**
+ * 功能页页首像：每套服装六张（头顶到大腿中部，整张入画，下沿渐隐）。
+ * 只有一档 360px 高的图（显示 180px 的 2 倍），AVIF + WebP。
+ */
+export type PageId = "gallery" | "channels" | "usage" | "tokens" | "logs" | "settings";
+export const PAGE_IDS: PageId[] = ["gallery", "channels", "usage", "tokens", "logs", "settings"];
+const PAGE_ALT: Record<PageId, string> = {
+  gallery: "举着一叠照片",
+  channels: "正在接上网线",
+  usage: "拿着平板讲解图表",
+  tokens: "举着一把钥匙",
+  logs: "拿着写字板核对",
+  settings: "举着小扳手",
+};
+export function pageMeta(o: OutfitId, p: PageId): PageEntry | null {
+  return A.outfits[o]?.pages?.[p] ?? A.outfits[DEFAULT_OUTFIT]?.pages?.[p] ?? null;
+}
+export function pageSrc(o: OutfitId, p: PageId) {
+  const has = A.outfits[o]?.pages?.[p];
+  const oo = has ? o : DEFAULT_OUTFIT;
+  const e = pageMeta(o, p);
+  if (!e) return null;
+  const H = A.tiers.page ?? 360;
+  return {
+    webp: `/img/rinne/${oo}/page-${p}.${e.f}.webp`,
+    avif: `/img/rinne/${oo}/page-${p}.${e.a}.avif`,
+    width: Math.round(H * e.ar),
+    height: H,
+    alt: "棱音" + PAGE_ALT[p],
+    meta: e,
+  };
+}
+
+/**
+ * 自动换装：按当地时间和季节挑一套，衣柜里选的那套作为工作日白天的默认。
+ *  - 22:00–6:00 居家睡衣
+ *  - 周末 6:00–9:00 运动套装
+ *  - 周五、周六 19:00–22:00 晚会礼服
+ *  - 周末白天：6–9 月清爽夏季，12–2 月冬日针织，其余秋日风衣
+ *  - 工作日白天：12–2 月且选的是职业装时换冬日针织，否则就是衣柜里选的那套
+ *  - 春节前后（1 月 20 日–2 月 20 日的周末）新中式
+ */
+export function autoOutfit(base: OutfitId, d: Date = new Date()): OutfitId {
+  const h = d.getHours();
+  const wd = d.getDay();
+  const mon = d.getMonth() + 1;
+  const day = d.getDate();
+  const weekend = wd === 0 || wd === 6;
+  if (h >= 22 || h < 6) return "home";
+  if (weekend && h < 9) return "sport";
+  if ((wd === 5 || wd === 6) && h >= 19) return "gown";
+  const winter = mon === 12 || mon <= 2;
+  if (weekend) {
+    const spring = (mon === 1 && day >= 20) || (mon === 2 && day <= 20);
+    if (spring) return "qipao";
+    if (mon >= 6 && mon <= 9) return "summer";
+    return winter ? "winter" : "trench";
+  }
+  if (winter && base === "suit") return "winter";
+  return base;
+}
+
+/** 存在 cookie 里的形象设置（登录页、引导页还没有设置可读时用），格式 outfit|motion|show|auto */
 export const RINNE_COOKIE = "prism_rinne";
 export interface RinnePrefs {
   outfit: OutfitId;
   motion: RinneMotion;
   show: boolean;
+  /** 自动换装 */
+  auto: boolean;
 }
-export const DEFAULT_PREFS: RinnePrefs = { outfit: DEFAULT_OUTFIT, motion: "system", show: true };
+export const DEFAULT_PREFS: RinnePrefs = { outfit: DEFAULT_OUTFIT, motion: "system", show: true, auto: false };
 export function parsePrefs(v: string | undefined | null): RinnePrefs {
   if (!v) return DEFAULT_PREFS;
-  const [o, m, s] = decodeURIComponent(v).split("|");
-  return { outfit: isOutfit(o) ? o : DEFAULT_OUTFIT, motion: isMotion(m) ? m : "system", show: s !== "0" };
+  const [o, m, s, a] = decodeURIComponent(v).split("|");
+  return { outfit: isOutfit(o) ? o : DEFAULT_OUTFIT, motion: isMotion(m) ? m : "system", show: s !== "0", auto: a === "1" };
 }
 export function prefsCookie(p: RinnePrefs) {
-  return `${p.outfit}|${p.motion}|${p.show ? 1 : 0}`;
+  return `${p.outfit}|${p.motion}|${p.show ? 1 : 0}|${p.auto ? 1 : 0}`;
 }

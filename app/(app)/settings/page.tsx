@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Laptop, Loader2, LogOut, Moon, RotateCcw, Sun } from "lucide-react";
 import { useApp, type Theme } from "@/components/AppContext";
-import { IdolSay, PageHeader, Toggle, toast } from "@/components/ui";
+import { PageHeader, Toggle, toast } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { PERSONA_SYSTEM_PROMPT, callName, copy, fill } from "@/lib/copy";
 import type { Settings } from "@/lib/types";
+import { RinnePageHead } from "@/components/rinne/RinnePageHead";
+
 import dynamic from "next/dynamic";
 
 // 预设和备份按需加载
@@ -96,7 +98,7 @@ export default function SettingsPage() {
     <div className="scroll-thin h-full overflow-y-auto">
       <PageHeader title="设置" />
       <div className="mx-auto max-w-2xl space-y-4 px-4 py-6 md:px-8">
-        <IdolSay>{fill(copy.persona.hello, { name })}</IdolSay>
+        <RinnePageHead page="settings">{fill(copy.persona.hello, { name })}</RinnePageHead>
 
         <Section title="棱音怎么称呼你" sub="界面台词和「让模型也用棱音的口吻」都会用这个称呼">
           <div className="flex flex-wrap gap-2">
@@ -123,7 +125,7 @@ export default function SettingsPage() {
           </p>
         </Section>
 
-        <Section id="wardrobe" title="形象 / 衣柜" sub="八套服装，选好后所有页面的棱音都会换上；选择保存在设置里，换设备也一样">
+        <Section id="wardrobe" title="形象 / 衣柜" sub="九套服装，选好后所有页面的棱音都会换上；选择保存在设置里，换设备也一样">
           <Wardrobe />
         </Section>
 

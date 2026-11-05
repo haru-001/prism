@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Loader2, Trash2 } from "lucide-react";
-import { IdolSay, PageHeader, toast } from "@/components/ui";
+import { PageHeader, toast } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
+import { RinnePageHead } from "@/components/rinne/RinnePageHead";
+
 
 // 单价表按需加载
 const PricingEditor = dynamic(() => import("@/components/PricingEditor"), { ssr: false, loading: () => <div className="shimmer h-32 rounded-2xl" /> });
@@ -193,7 +195,7 @@ export default function UsagePage() {
         }
       />
       <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 md:px-8">
-        <IdolSay>{copy.usage.say}</IdolSay>
+        <RinnePageHead page="usage">{copy.usage.say}</RinnePageHead>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[

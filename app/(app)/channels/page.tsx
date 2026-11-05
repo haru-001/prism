@@ -10,6 +10,8 @@ import { IdolAvatar } from "@/components/Logo";
 import { api, fmtTime } from "@/lib/client/api";
 import { copy, fill } from "@/lib/copy";
 import type { PublicChannel } from "@/lib/types";
+import { RinnePageHead } from "@/components/rinne/RinnePageHead";
+
 
 function href(u: string) {
   const s = u.trim().replace(/#$/, "");
@@ -122,6 +124,13 @@ export default function ChannelsPage() {
         }
       />
       <div className="mx-auto max-w-5xl px-4 py-6 md:px-8">
+        {channels.length > 0 && (
+          <div className="mb-6">
+            <RinnePageHead page="channels">
+              {fill(copy.channels.say, { n: channels.length, ok: channels.filter((c) => c.enabled && c.status?.ok && !c.autoDisabled).length })}
+            </RinnePageHead>
+          </div>
+        )}
         {!channels.length && (
           <Empty text={copy.channels.empty}>
             <button className="btn-primary" onClick={() => setEditing({ ch: null })}>

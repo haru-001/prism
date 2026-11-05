@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { RinneScene } from "@/components/rinne/RinneScene";
 import { RinneBubble } from "@/components/rinne/RinneBubble";
+import { useRinne } from "@/components/rinne/RinneProvider";
+import { preloadFigure } from "@/lib/client/rinne-load";
+import { rinneLine } from "@/lib/rinne-lines";
 import { Check, Code2, Download, Eye, FileDown, HeartPulse, Menu, Palette, ScrollText } from "lucide-react";
 import type { ChatMsg, Conversation, ModelGroup, Preset } from "@/lib/types";
 import { api, readEvents, uid, notifyDbDown } from "@/lib/client/api";
@@ -38,6 +41,7 @@ function Num({ n }: { n: number }) {
 export function ChatView({ id: initialId, initial }: { id?: string; initial?: Promise<Conversation | null> }) {
   const app = useApp();
   const { catalog, settings, ready, seen, markTip, name, channels } = app;
+  const { outfit: rinneOutfit } = useRinne();
 
   const [convId, setConvId] = useState<string>(initialId || "");
   const [loaded, setLoaded] = useState(!initialId);
@@ -365,6 +369,8 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
   // ===== 发送 =====
   function send(override?: { text?: string; mode?: "chat" | "image" }) {
     if (streaming) return;
+    // 发出去之前先把接下来要用的半身像（思考、出错、生图）下载解码好，切换时不会空一下
+    for (const m of ["thinking", "error", "imaging"] as const) void preloadFigure(rinneOutfit, m, "chat").catch(() => {});
     let text = (override?.text ?? input).trim();
     if (!text) return;
     let m = override?.mode ?? mode;
@@ -620,8 +626,9 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
                   size="md"
                   ly={30}
                   priority
+                  mobfull
                   testId="chat-empty-scene"
-                  link={<RinneBubble>{fill(copy.chat.emptyTitle, { name })}</RinneBubble>}
+                  link={<RinneBubble>{rinneLine(rinneOutfit, "chat")}</RinneBubble>}
                 >
                   <div className="flex w-full flex-col items-center">
                   {app.presets.length > 0 && (

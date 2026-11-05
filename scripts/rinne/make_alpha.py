@@ -30,7 +30,7 @@ from rembg import new_session, remove  # noqa: E402
 from pymatting import estimate_alpha_cf, estimate_foreground_ml  # noqa: E402
 
 MOODS = ["welcome", "guide", "thinking", "success", "error", "imaging", "waiting"]
-OUTFITS = ["suit", "gown", "summer", "home", "trench", "qipao", "bridal", "sport"]
+OUTFITS = ["suit", "gown", "summer", "home", "trench", "qipao", "bridal", "sport", "winter"]
 STAGE = (430, 860)
 # 透明图比原来的 RGB 图大不少：WebP 颜色 q78、alpha q70，AVIF q50。
 # 抠图边缘在 alpha 里，alpha 有损压缩到 70 肉眼看不出，体积能省三成左右
@@ -168,11 +168,11 @@ SRC = os.environ.get("RINNE_SRC", "/workspace/work/rinne-orig")
 def one(root, outfit, mood, entry):
     d = os.path.join(root, outfit)
     # 源图：抠图前的 RGB 原图（不要拿已经抠过的图再抠一次）
-    src = glob.glob(os.path.join(SRC, outfit, f"{mood}-2x.????????.webp"))[0]
     mp = os.path.join(MASTER, outfit, f"{mood}.png")
     if os.path.exists(mp):
         rgba = Image.open(mp).convert("RGBA")
     else:
+        src = glob.glob(os.path.join(SRC, outfit, f"{mood}-2x.????????.webp"))[0]
         rgba = matte(Image.open(src).convert("RGB"), f"{outfit}/{mood}")
         os.makedirs(os.path.dirname(mp), exist_ok=True)
         rgba.save(mp)

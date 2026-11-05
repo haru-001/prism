@@ -6,8 +6,10 @@ import { Copy, Download, Loader2, MessageSquare, Search, Trash2 } from "lucide-r
 import { Empty, Modal, PageHeader, copyText, toast } from "@/components/ui";
 import { api, fmtTime } from "@/lib/client/api";
 import { imgSrc, thumbOf } from "@/lib/client/thumb";
-import { copy } from "@/lib/copy";
+import { copy, fill } from "@/lib/copy";
 import type { GalleryItem } from "@/lib/types";
+import { RinnePageHead } from "@/components/rinne/RinnePageHead";
+
 
 function download(item: GalleryItem) {
   const a = document.createElement("a");
@@ -66,6 +68,11 @@ export default function GalleryPage() {
         }
       />
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
+        {items && items.length > 0 && (
+          <div className="mb-6">
+            <RinnePageHead page="gallery">{fill(copy.gallery.say, { n: items.length })}</RinnePageHead>
+          </div>
+        )}
         {items === null ? (
           <div className="flex justify-center py-16 text-muted">
             <Loader2 className="animate-spin" />

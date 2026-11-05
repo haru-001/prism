@@ -43,7 +43,7 @@
   background: radial-gradient(46% 16% at 50% 84%, rgb(var(--brand-rgb, 124 92 255) / 0.12), transparent 80%);
   line-height: 0;
   align-self: start;
-  /* 舞台宽度：这个状态八套里最宽的那张，换装时舞台不变宽变窄 */
+  /* 舞台宽度：这个状态九套里最宽的那张，换装时舞台不变宽变窄 */
   width: calc(var(--H) * var(--arw, var(--ar)) + 2 * var(--sp));
   box-sizing: border-box;
 }
@@ -220,4 +220,60 @@
 }
 .dark .rn-avatar, .dark .rn-thumb {
   background: linear-gradient(160deg, #2b2645 0%, #1c2b33 100%);
+}
+
+/* ===== 功能页页首：台词气泡在左，这一页专属的半身像在右 ===== */
+.rn-ph {
+  --H: 180px;
+  --gap: 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap);
+  width: 100%;
+}
+.rn-ph-say {
+  flex: 1;
+  min-width: 0;
+  /* 气泡第一行（约 26px 处）和连接点同高，线就是水平的 */
+  margin-top: max(0px, calc(var(--H) * var(--hy) - 26px));
+}
+.rn-ph-fig {
+  position: relative;
+  flex: none;
+  height: var(--H);
+  width: calc(var(--H) * var(--ar));
+  background: radial-gradient(50% 30% at 50% 70%, rgb(var(--brand-rgb, 124 92 255) / 0.1), transparent 80%);
+}
+.rn-ph-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* 半身像的下沿是裁出来的，渐隐掉 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 78%, transparent 100%);
+  animation: rn-ph-in 260ms ease both;
+}
+.rn-ph .rn-ph-wire {
+  top: calc(var(--H) * var(--hy));
+  left: calc(-1 * var(--gap));
+  width: calc(var(--gap) + var(--H) * var(--ar) * var(--hx) - 9px);
+}
+@keyframes rn-ph-in { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 560px) {
+  .rn-ph { --H: 136px; --gap: 12px; }
+}
+
+/* ===== 待机小动作：整页场景和页首像轻轻浮动（2px，5 秒一个来回），关掉动效时不动 ===== */
+@media (prefers-reduced-motion: no-preference) {
+  .rn-scn:not(.rn-still) .rn-stg > .rn-fig,
+  .rn-ph:not(.rn-still) .rn-ph-fig > picture {
+    animation: rn-float 5s ease-in-out infinite;
+  }
+}
+.rn-ph-fig > picture { display: block; height: 100%; }
+@keyframes rn-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.rn-still .rn-ph-img { animation: none; }
+@media (min-width: 1024px) {
+  .rn-ph { --H: 210px; }
 }

@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Copy, Eye, EyeOff, Loader2, RefreshCw } from "lucide-react";
 import { useApp } from "@/components/AppContext";
-import { IdolSay, PageHeader, copyText, toast } from "@/components/ui";
+import { PageHeader, copyText, toast } from "@/components/ui";
 import { api } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
+import { RinnePageHead } from "@/components/rinne/RinnePageHead";
+
 import dynamic from "next/dynamic";
 
 // 令牌管理按需加载，首屏只有地址和默认令牌
@@ -81,7 +83,7 @@ export default function TokensPage() {
     <div className="scroll-thin h-full overflow-y-auto">
       <PageHeader title="令牌与接口" sub="给外部客户端用，可以按客户端分开发令牌" />
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6 md:px-8">
-        <IdolSay>{copy.tokens.say}</IdolSay>
+        <RinnePageHead page="tokens">{copy.tokens.say}</RinnePageHead>
 
         <div className="card space-y-4 p-5">
           <Field label="Base URL" value={origin} />

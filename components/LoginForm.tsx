@@ -1,15 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 import { api } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
 import { Brand } from "./Logo";
 import { RinneScene } from "./rinne/RinneScene";
 import { RinneBubble } from "./rinne/RinneBubble";
+import { useRinne } from "./rinne/RinneProvider";
+import { rinneLine } from "@/lib/rinne-lines";
 
 export function LoginForm() {
   const [pw, setPw] = useState("");
+  const { outfit } = useRinne();
+  // 台词随服装、按日期轮换；挂载后再算，避免服务端和浏览器时区不同导致水合不一致
+  const [say, setSay] = useState(copy.login.say);
+  useEffect(() => setSay(rinneLine(outfit, "login")), [outfit]);
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -43,7 +49,7 @@ export function LoginForm() {
           testId="login-scene"
           link={
             <div className="flex w-full max-w-sm flex-col gap-3">
-              <RinneBubble tone={err ? "bad" : "normal"}>{err || copy.login.say}</RinneBubble>
+              <RinneBubble tone={err ? "bad" : "normal"}>{err || say}</RinneBubble>
           <form onSubmit={submit} className="card w-full max-w-sm p-6 shadow-xl">
             <Brand small />
             <h1 className="mt-3 text-xl font-bold">{copy.login.title}</h1>

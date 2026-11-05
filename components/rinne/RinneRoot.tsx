@@ -16,10 +16,11 @@ export function RinneAppRoot({ cookie, children }: { cookie: RinnePrefs; childre
     outfit: isOutfit(settings.rinneOutfit) ? settings.rinneOutfit : cookie.outfit,
     motion: isMotion(settings.rinneMotion) ? settings.rinneMotion : cookie.motion,
     show: typeof settings.rinneShow === "boolean" ? settings.rinneShow : cookie.show,
+    auto: typeof settings.rinneAuto === "boolean" ? settings.rinneAuto : cookie.auto,
   };
   const onChange = useCallback(
     (p: RinnePrefs) => {
-      updateSettings({ rinneOutfit: p.outfit, rinneMotion: p.motion, rinneShow: p.show }).catch(() => {});
+      updateSettings({ rinneOutfit: p.outfit, rinneMotion: p.motion, rinneShow: p.show, rinneAuto: p.auto }).catch(() => {});
     },
     [updateSettings],
   );

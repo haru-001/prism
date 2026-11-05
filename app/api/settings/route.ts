@@ -28,6 +28,7 @@ async function PUTHandler(req: Request) {
   if (isOutfit(b.rinneOutfit)) patch.rinneOutfit = b.rinneOutfit;
   if (isMotion(b.rinneMotion)) patch.rinneMotion = b.rinneMotion;
   if (typeof b.rinneShow === "boolean") patch.rinneShow = b.rinneShow;
+  if (typeof b.rinneAuto === "boolean") patch.rinneAuto = b.rinneAuto;
   if (b.temperature != null && Number.isFinite(Number(b.temperature))) patch.temperature = Math.min(2, Math.max(0, Number(b.temperature)));
   return Response.json({ settings: await saveSettings(patch) });
 }
