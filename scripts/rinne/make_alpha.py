@@ -32,9 +32,13 @@ from pymatting import estimate_alpha_cf, estimate_foreground_ml  # noqa: E402
 MOODS = ["welcome", "guide", "thinking", "success", "error", "imaging", "waiting"]
 OUTFITS = ["suit", "gown", "summer", "home", "trench", "qipao", "bridal", "sport"]
 STAGE = (430, 860)
-MINI = (100, 250)
-WEBP_Q = 82
-AVIF_Q = 60
+# 透明图比原来的 RGB 图大不少：WebP 颜色 q78、alpha q70，AVIF q50。
+# 抠图边缘在 alpha 里，alpha 有损压缩到 70 肉眼看不出，体积能省三成左右
+WEBP_Q = 78
+WEBP_ALPHA_Q = 70
+AVIF_Q = 50
+# 抠好的 RGBA 母版缓存在这里，只调编码参数时不用重新抠图
+MASTER = os.environ.get("RINNE_MASTER", "/workspace/work/rinne-rgba")
 
 _s = {}
 # 浅色道具补抠：源图里被整平进灰底的道具（如夏装「等待」的保温箱）边缘已经被抹花，
@@ -143,7 +147,7 @@ def resize_rgba(im, size):
 def enc(im, fmt):
     b = io.BytesIO()
     if fmt == "webp":
-        im.save(b, "WEBP", quality=WEBP_Q, alpha_quality=90, method=6, exact=False)
+        im.save(b, "WEBP", quality=WEBP_Q, alpha_quality=WEBP_ALPHA_Q, method=6, exact=False)
     else:
         im.save(b, "AVIF", quality=AVIF_Q, speed=4)
     return b.getvalue()
@@ -165,26 +169,35 @@ def one(root, outfit, mood, entry):
     d = os.path.join(root, outfit)
     # 源图：抠图前的 RGB 原图（不要拿已经抠过的图再抠一次）
     src = glob.glob(os.path.join(SRC, outfit, f"{mood}-2x.????????.webp"))[0]
-    im = Image.open(src).convert("RGB")
-    rgba = matte(im, f"{outfit}/{mood}")
+    mp = os.path.join(MASTER, outfit, f"{mood}.png")
+    if os.path.exists(mp):
+        rgba = Image.open(mp).convert("RGBA")
+    else:
+        rgba = matte(Image.open(src).convert("RGB"), f"{outfit}/{mood}")
+        os.makedirs(os.path.dirname(mp), exist_ok=True)
+        rgba.save(mp)
     W2 = rgba.width
     H2 = rgba.height
     W1 = round(W2 * STAGE[0] / H2)
-    mw = [round(W2 * h / H2) for h in MINI]
+    # 只出舞台两档：全身和半身（toast / 提醒条 / 对话）都用它，原来的小立绘档（-sm）不再生成
     tiers = [
         ("", resize_rgba(rgba, (W1, STAGE[0]))),
         ("-2x", rgba),
-        ("-sm", resize_rgba(rgba, (mw[0], MINI[0]))),
-        ("-sm-2x", resize_rgba(rgba, (mw[1], MINI[1]))),
     ]
     f = list(entry["f"])
     a = list(entry["a"])
     for i, (suf, img) in enumerate(tiers):
         f[i] = write(d, mood + suf, enc(img, "webp"), "webp")
         a[i] = write(d, mood + suf, enc(img, "avif"), "avif")
+    for suf in ("-sm", "-sm-2x"):
+        for old in glob.glob(os.path.join(d, f"{mood}{suf}.????????.*")):
+            os.remove(old)
+    # f 的 2、3 位（小立绘）和 a 的 2、3 位留空，保持数组位置不变（头像仍在 f[4]、f[5]）
+    f[2] = f[3] = ""
+    a = a[:2] + ["", ""]
     entry["f"] = f
     entry["a"] = a
-    entry["alpha"] = 1
+    entry["alpha"] = 2
     return entry
 
 
@@ -197,7 +210,7 @@ def main():
             if only and f"{o}/{m}" not in only:
                 continue
             e = J["outfits"][o][m]
-            if e.get("alpha") and not only:
+            if e.get("alpha", 0) >= 2 and not only:
                 continue
             J["outfits"][o][m] = one(root, o, m, e)
             json.dump(J, open(meta, "w"), ensure_ascii=False, separators=(",", ":"))

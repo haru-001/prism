@@ -213,3 +213,11 @@
 .rn-inl > .rn-fig { flex: none; }
 @media (max-width: 560px) { .rn-inl { gap: 10px; } }
 @media (max-width: 560px) { .rn-fig.rn-wd-preview { --H: 240px; } }
+
+/* 头像、衣柜缩略图是透明图：垫一层品牌色渐变底，深色模式换成深色渐变，不再是灰色块 */
+.rn-avatar, .rn-thumb {
+  background: linear-gradient(160deg, #efeaff 0%, #e3f4f3 100%);
+}
+.dark .rn-avatar, .dark .rn-thumb {
+  background: linear-gradient(160deg, #2b2645 0%, #1c2b33 100%);
+}

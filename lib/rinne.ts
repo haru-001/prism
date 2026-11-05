@@ -22,13 +22,13 @@ export const MOODS: Mood[] = ["welcome", "guide", "thinking", "success", "error"
 
 export const OUTFITS: { id: OutfitId; name: string; note: string }[] = [
   { id: "suit", name: "干练职业装", note: "默认" },
-  { id: "gown", name: "晚会礼服", note: "正式场合" },
-  { id: "summer", name: "清爽夏季", note: "短上衣 · 牛仔短裤" },
+  { id: "gown", name: "晚会礼服", note: "午夜蓝挂脖露背长裙" },
+  { id: "summer", name: "清爽夏季", note: "露腰背心 · 高腰牛仔短裤" },
   { id: "home", name: "居家睡衣", note: "深夜加班" },
   { id: "trench", name: "秋日风衣", note: "出门在外" },
   { id: "qipao", name: "新中式", note: "节日" },
   { id: "bridal", name: "婚纱", note: "蕾丝露背" },
-  { id: "sport", name: "运动套装", note: "跑步短裤" },
+  { id: "sport", name: "运动套装", note: "运动背心 · 紧身短裤" },
 ];
 
 export const DEFAULT_OUTFIT: OutfitId = "suit";
@@ -43,13 +43,13 @@ export function isMotion(v: unknown): v is RinneMotion {
 /** 每套服装每个状态的动作说明，做图片 alt */
 const ALT: Record<OutfitId, Record<Mood, string>> = {
   suit: { welcome: "挥手打招呼", guide: "摊手示意", thinking: "低头看平板", success: "比 OK", error: "拿着手机示意", imaging: "拿着相机", waiting: "抱着平板看手表" },
-  gown: { welcome: "举杯提裙致意", guide: "掌心向上引向一侧", thinking: "手指轻点下巴", success: "轻轻鼓掌", error: "拿着手机略带歉意", imaging: "拿着卡片相机", waiting: "看腕表静候" },
-  summer: { welcome: "双手挥舞", guide: "蹦一步回头指路", thinking: "咬着吸管看手机", success: "比耶", error: "双手合十道歉", imaging: "举着拍立得", waiting: "坐着扇扇子" },
+  gown: { welcome: "回眸举杯致意", guide: "掌心向上引向一侧", thinking: "手指轻点下巴", success: "轻轻鼓掌", error: "拿着手机略带歉意", imaging: "拿着卡片相机", waiting: "看腕表静候" },
+  summer: { welcome: "双手挥舞", guide: "蹦一步回头指路", thinking: "咬着吸管看手机", success: "敬礼比胜利", error: "双手合十道歉", imaging: "举着拍立得", waiting: "坐在保温箱上扇扇子" },
   home: { welcome: "抱着靠垫挥手", guide: "拿着平板示意", thinking: "窝在懒人沙发看电脑", success: "坐着伸懒腰", error: "裹着毯子拿手机", imaging: "坐着用平板画画", waiting: "端着茶杯打哈欠" },
   trench: { welcome: "一手插兜一手挥", guide: "侧身回头指路", thinking: "边走边看手机", success: "竖大拇指", error: "把手机递出来给你看", imaging: "拿着胶片相机", waiting: "撑着透明伞等人" },
   qipao: { welcome: "作揖行礼", guide: "团扇指引", thinking: "托腮执笔", success: "浅笑点头", error: "轻掩口略带歉意", imaging: "执毛笔作画", waiting: "捧着茶盏静候" },
   bridal: { welcome: "捧花微笑挥手", guide: "转身回头示意", thinking: "低头看誓词卡", success: "抛捧花", error: "拿着手机略带歉意", imaging: "举着相框", waiting: "侧身整理头纱" },
-  sport: { welcome: "边跑边挥手", guide: "吹哨指方向", thinking: "拉伸时看运动手表", success: "跳起来握拳", error: "擦汗看手机", imaging: "举着运动相机", waiting: "坐在台阶上喝水" },
+  sport: { welcome: "边跑边挥手", guide: "伸手指方向", thinking: "拉伸时看运动手表", success: "举拳庆祝", error: "搭着毛巾举手机", imaging: "举着运动相机", waiting: "坐在跳箱上喝水" },
 };
 export function moodAlt(o: OutfitId, m: Mood) {
   return "棱音" + ALT[o][m];

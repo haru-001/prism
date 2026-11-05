@@ -39,7 +39,7 @@ export function IdolAvatar({ size = 28, mood = "welcome", className = "" }: { si
       height={size}
       loading="lazy"
       decoding="async"
-      className={`shrink-0 rounded-full bg-[#d8d8da] object-cover ring-2 ring-white/70 dark:ring-white/10 ${className}`}
+      className={`rn-avatar shrink-0 rounded-full object-cover ring-2 ring-white/70 dark:ring-white/10 ${className}`}
       style={{ width: size, height: size }}
     />
   );

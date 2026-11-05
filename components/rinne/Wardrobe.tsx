@@ -54,7 +54,7 @@ export function Wardrobe() {
                   height={160}
                   loading="lazy"
                   decoding="async"
-                  className="block aspect-[3/4] w-full bg-[#d8d8da] object-contain"
+                  className="rn-thumb block aspect-[3/4] w-full object-contain"
                 />
                 <div className="px-1.5 py-1">
                   <div className="truncate text-[12px] font-medium">{o.name}</div>
