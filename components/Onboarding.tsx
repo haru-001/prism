@@ -25,7 +25,7 @@ function Tip({ children }: { children: React.ReactNode }) {
 }
 
 
-export function Onboarding({ passwordMode, channelCount, name }: { passwordMode: PwMode; channelCount: number; name: string }) {
+export function Onboarding({ passwordMode, needSetupCode = false, channelCount, name }: { passwordMode: PwMode; needSetupCode?: boolean; channelCount: number; name: string }) {
   const [step, setStep] = useState(1);
   const [pwMode, setPwMode] = useState<PwMode>(passwordMode);
   const [existing, setExisting] = useState(channelCount);
@@ -33,6 +33,7 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
   // 第 1 步
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [code, setCode] = useState("");
 
   // 第 2 步
   const [type, setType] = useState<ChannelType>("openai");
@@ -64,9 +65,10 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
   async function savePassword() {
     setErr("");
     if (pw.trim().length < 6) return setErr("密码至少 6 位");
+    if (needSetupCode && !code.trim()) return setErr("请填写初始化口令");
     setBusy(true);
     try {
-      await api("/api/auth/setup", { body: { password: pw } });
+      await api("/api/auth/setup", { body: { password: pw, setupCode: needSetupCode ? code.trim() : undefined } });
       setPwMode("set");
       setStep(2);
     } catch (e) {
@@ -263,6 +265,23 @@ export function Onboarding({ passwordMode, channelCount, name }: { passwordMode:
                     {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                {needSetupCode && (
+                  <div className="mt-4">
+                    <label className="label" htmlFor="setup-code">
+                      初始化口令
+                    </label>
+                    <input
+                      id="setup-code"
+                      className="input"
+                      type="password"
+                      autoComplete="off"
+                      placeholder="Vercel 环境变量里的 PRISM_SECRET"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                    />
+                  </div>
+                )}
+                {needSetupCode && <Tip>初始化口令用来确认是部署者本人，只在第一次设密码时需要；设了 PRISM_SETUP_CODE 的话填它。</Tip>}
                 <Tip>密码加密保存在服务端。想用环境变量管理的话，也可以在 Vercel 里设 ACCESS_PASSWORD。</Tip>
                 {err && <p className="mt-3 text-sm text-bad">{err}</p>}
                 <div className="mt-6 flex flex-wrap gap-2">

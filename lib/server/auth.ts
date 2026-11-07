@@ -17,6 +17,20 @@ export async function passwordConfigured(): Promise<boolean> {
   return !!(await storedPasswordHash());
 }
 
+/**
+ * 首次设密码要不要「初始化口令」：部署时设了 PRISM_SETUP_CODE 就用它，否则用 PRISM_SECRET。
+ * 两个都没设（本地开发）就不要求。这样站点刚上线、还没设密码时，路人不能抢先设密码。
+ */
+export function setupCode(): string {
+  return (process.env.PRISM_SETUP_CODE || env.secret || "").trim();
+}
+
+export function checkSetupCode(code: unknown): boolean {
+  const want = setupCode();
+  if (!want) return true;
+  return typeof code === "string" && safeEqual(code.trim(), want);
+}
+
 async function fingerprint(opts?: { fresh?: boolean }): Promise<string> {
   if (env.accessPassword) return "env:" + sha(env.accessPassword);
   const h = await storedPasswordHash(opts);

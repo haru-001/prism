@@ -85,8 +85,9 @@ class MysqlKV implements KV {
   }
   async lpush(key: string, value: unknown, maxLen: number) {
     await q(`INSERT INTO ${T.list} (k, v) VALUES (?, ?)`, [key, J(value)]);
-    // 不放进事务：每条语句都能看到别的请求刚写进去的行，并发写入时也能准确裁到 maxLen 条。
-    // 裁剪合成一条语句（原来是先查第 maxLen 条的 id 再删，两次往返）
+    // 裁剪不必每次都做：大约每 16 次写入裁一次，列表最多比 maxLen 多十几条，读的时候本来就按条数截取。
+    // 这样每次 /v1 请求少一条 DELETE。裁剪是一条语句（不放进事务，能看到别的请求刚写进去的行）
+    if (Math.random() >= 1 / 16) return;
     await q(
       `DELETE FROM ${T.list} WHERE k = ? AND id < (SELECT id FROM (SELECT id FROM ${T.list} WHERE k = ? ORDER BY id DESC LIMIT 1 OFFSET ?) AS cut)`,
       [key, key, maxLen - 1],

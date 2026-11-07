@@ -137,6 +137,7 @@ export async function withFailover<T>(
     } catch (e) {
       const err = toRelayError(e, t.channel.name);
       last = err;
+      if ((e as { clientFault?: boolean })?.clientFault) break;
       if (err.kind === "unsupported" && targets.length === 1) break;
       // 客户端自己断开的不算线路的错
       if ((e as Error)?.name === "AbortError" && err.kind !== "timeout") break;
@@ -165,8 +166,15 @@ export async function inlineImages(req: IChatRequest): Promise<IChatRequest> {
       content: await Promise.all(
         m.content.map(async (p) => {
           if (p.type !== "image" || p.data || !p.url) return p;
-          const r = await resolveImage(p.url);
-          return { type: "image" as const, data: r.data, mime: r.mime };
+          try {
+            const r = await resolveImage(p.url);
+            return { type: "image" as const, data: r.data, mime: r.mime };
+          } catch (e) {
+            // 图片地址本身有问题（内网地址、打不开、不是图片）是调用方的问题：返回 400，不换线路、不记线路失败
+            const err = new RelayError("bad", `图片读取失败：${(e as Error)?.message || e}`, 400) as RelayError & { clientFault?: boolean };
+            err.clientFault = true;
+            throw err;
+          }
         }),
       ),
     })),

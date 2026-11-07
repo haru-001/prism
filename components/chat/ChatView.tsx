@@ -352,9 +352,12 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
       });
       const notices: ChatMsg[] = (r.notices || []).map((n) => ({ id: uid(), role: "notice", text: n.text, createdAt: Date.now() }));
       setMessages((list) => {
+        const result = { images: r.images, channel: r.channel, latencyMs: r.latencyMs, error: r.error, text: r.revisedPrompt || "" };
         const i = list.findIndex((m) => m.id === aid);
-        const updated = { ...list[i], images: r.images, channel: r.channel, latencyMs: r.latencyMs, error: r.error, text: r.revisedPrompt || "" };
-        return [...list.slice(0, i), ...notices, updated, ...list.slice(i + 1)];
+        // 生成期间这条占位消息可能已经不在列表里（比如对话被清空、消息被删）。
+        // 原来这里会用 i = -1 去切数组，把最后一条消息吃掉；现在把结果补到末尾，图片不丢。
+        if (i < 0) return [...list, ...notices, { ...assistant, ...result, pending: false }];
+        return [...list.slice(0, i), ...notices, { ...list[i], ...result }, ...list.slice(i + 1)];
       });
     } catch (e) {
       if ((e as Error).name !== "AbortError") patch(aid, { error: { title: "生图失败", message: (e as Error).message } });

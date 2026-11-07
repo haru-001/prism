@@ -66,16 +66,16 @@ check("自动建好六张表（含用量统计和日志详情）", (await sql("S
 const saved = cookie;
 cookie = "";
 for (let i = 0; i < 10; i++) await ui("/api/auth/login", { method: "POST", body: { password: "wrong" } });
-let row = (await sql("SELECT v, exp FROM prism_kv WHERE k = 'prism:login:fail'"))[0];
+let row = (await sql("SELECT v, exp FROM prism_kv WHERE k LIKE 'prism:login:fail:%'"))[0];
 check("连续输错 10 次，计数是 10，并且带过期时间", row && row.v === "10" && Number(row.exp) > Date.now() + 500_000, row);
 r = await ui("/api/auth/login", { method: "POST", body: { password: "test1234" } });
 check("第 11 次即使密码对也被锁住（429）", r.status === 429, r);
-await sql("UPDATE prism_kv SET exp = ? WHERE k = 'prism:login:fail'", [Date.now() - 1000]);
+await sql("UPDATE prism_kv SET exp = ? WHERE k LIKE 'prism:login:fail:%'", [Date.now() - 1000]);
 r = await ui("/api/auth/login", { method: "POST", body: { password: "wrong" } });
-row = (await sql("SELECT v, exp FROM prism_kv WHERE k = 'prism:login:fail'"))[0];
+row = (await sql("SELECT v, exp FROM prism_kv WHERE k LIKE 'prism:login:fail:%'"))[0];
 check("计数过期后重新从 1 开始", r.status === 401 && row?.v === "1" && Number(row.exp) > Date.now(), row);
 r = await ui("/api/auth/login", { method: "POST", body: { password: "test1234" } });
-row = (await sql("SELECT v FROM prism_kv WHERE k = 'prism:login:fail'"))[0];
+row = (await sql("SELECT v FROM prism_kv WHERE k LIKE 'prism:login:fail:%'"))[0];
 check("登录成功后计数被删掉", r.status === 200 && !row, row);
 if (!cookie) cookie = saved;
 
@@ -133,12 +133,13 @@ for (let i = 0; i < 106; i++) await Promise.all([one(), one(), one(), one(), one
 r = await ui("/api/logs");
 const [{ c }] = await sql("SELECT COUNT(*) c FROM prism_list WHERE k = 'prism:logs'");
 const logs = r.body.logs || r.body.items || r.body;
-check(`发了 ${sent} 个请求，数据库里留 ${c} 条`, sent === 530 && Number(c) === 500, { sent, c });
+// 修剪改成大约每 16 次写入做一次，库里会比 500 多出最多几十条
+check(`发了 ${sent} 个请求，数据库里留 ${c} 条`, sent === 530 && Number(c) >= 500 && Number(c) <= 530, { sent, c });
 check("日志接口返回 500 条，最新的在前", Array.isArray(logs) && logs.length === 500 && logs[0].at >= logs[499].at, Array.isArray(logs) ? logs.length : r.body);
 
 console.log("\n[6] 日志详情和用量统计的表");
 const [{ d }] = await sql("SELECT COUNT(*) d FROM prism_logd");
-check(`日志详情也只留最近 500 条（库里 ${d} 条）`, Number(d) <= 500 && Number(d) >= 495, d);
+check(`日志详情也只留最近 500 条左右（库里 ${d} 条）`, Number(d) <= 530 && Number(d) >= 495, d);
 const newest = logs[0];
 const [drow] = await sql("SELECT id FROM prism_logd WHERE id = ?", [newest.id]);
 check("最新一条日志的详情在库里", !!drow, newest.id);

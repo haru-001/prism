@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { isAuthed, passwordConfigured } from "@/lib/server/auth";
+import { isAuthed, passwordConfigured, setupCode } from "@/lib/server/auth";
 import { env, setupProblems } from "@/lib/server/env";
 import { getSettings, listChannels } from "@/lib/server/store";
 import { callName } from "@/lib/copy";
@@ -32,6 +32,7 @@ export default async function OnboardingPage() {
   return (
     <Onboarding
       passwordMode={env.accessPassword ? "env" : configured ? "set" : "none"}
+      needSetupCode={!configured && !env.accessPassword && !!setupCode()}
       channelCount={channels.length}
       name={settings ? callName(settings.callMode, settings.customName) : "你"}
     />
