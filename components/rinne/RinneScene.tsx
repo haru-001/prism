@@ -29,6 +29,8 @@ export function RinneScene({
   steady = false,
   className = "",
   testId,
+  clip,
+  replay,
 }: {
   mood: Mood;
   size?: StageSize;
@@ -48,6 +50,8 @@ export function RinneScene({
   steady?: boolean;
   className?: string;
   testId?: string;
+  clip?: import("./RinneClip").ClipId;
+  replay?: number;
 }) {
   const { show, outfit, animate } = useRinne();
   const m = moodMeta(outfit, mood);
@@ -74,7 +78,7 @@ export function RinneScene({
         <span className="rn-wire" aria-hidden="true" data-rinne-wire="" />
       </div>
       <div className="rn-stg" data-rinne-stage="">
-        <RinneFigure mood={mood} size={size} priority={priority} mobileH={mobileH} />
+        <RinneFigure mood={mood} size={size} priority={priority} mobileH={mobileH} clip={clip} replay={replay} />
       </div>
       {children ? <div className="rn-rs">{children}</div> : null}
     </div>

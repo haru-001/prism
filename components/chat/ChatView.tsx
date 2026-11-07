@@ -16,6 +16,7 @@ import { useApp } from "../AppContext";
 import { IdolAvatar } from "../Logo";
 import { toast } from "../ui";
 import { ModelPicker, type Picked } from "./ModelPicker";
+import { RinnePeek } from "../rinne/RinnePeek";
 import { Composer, type ImageOpts } from "./Composer";
 import { Coach, MessageItem, loadMarkdown } from "./MessageItem";
 
@@ -628,6 +629,8 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
                   priority
                   mobfull
                   testId="chat-empty-scene"
+                  clip="login-wave"
+                  replay={9000}
                   link={<RinneBubble>{rinneLine(rinneOutfit, "chat")}</RinneBubble>}
                 >
                   <div className="flex w-full flex-col items-center">
@@ -751,6 +754,8 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
             </Coach>
           </div>
         )}
+        <div className="relative">
+        <RinnePeek input={input} busy={streaming} />
         <Composer
           mode={mode}
           setMode={setMode}
@@ -778,6 +783,7 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
           setCompare={setCompare}
           visionNotice={visionNotice}
         />
+        </div>
         <p className="mt-1.5 hidden text-center text-[11px] text-muted sm:block">{copy.chat.hint}</p>
       </div>
     </div>

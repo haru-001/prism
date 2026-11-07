@@ -1,10 +1,11 @@
 "use client";
 
+import { RinneSideCard } from "./rinne/RinneSideCard";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, BookKey, Images, MessageSquarePlus, ScrollText, Search, Settings, Trash2, Waypoints, X } from "lucide-react";
-import { Brand, IdolAvatar } from "./Logo";
+import { Brand } from "./Logo";
 import { useApp } from "./AppContext";
 import { api } from "@/lib/client/api";
 import { dropConv, prefetchConv } from "@/lib/client/convCache";
@@ -100,11 +101,7 @@ export function Sidebar() {
             );
           })}
         </div>
-        <Link href="/channels" onClick={close} className="flex items-center gap-2.5 border-t border-rule px-4 py-3 text-xs text-muted hover:text-ink">
-          <IdolAvatar size={24} />
-          <span className={`h-2 w-2 rounded-full ${!enabled.length ? "bg-muted" : resting ? "bg-warn" : "bg-ok"}`} />
-          <span className="truncate">{status}</span>
-        </Link>
+        <RinneSideCard status={status} dot={!enabled.length ? "bg-muted" : resting ? "bg-warn" : "bg-ok"} onClick={close} />
       </aside>
     </>
   );

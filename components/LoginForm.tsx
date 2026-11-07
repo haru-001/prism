@@ -47,6 +47,7 @@ export function LoginForm() {
           steady
           mobfull
           testId="login-scene"
+          clip="login-wave"
           link={
             <div className="flex w-full max-w-sm flex-col gap-3">
               <RinneBubble tone={err ? "bad" : "normal"}>{err || say}</RinneBubble>

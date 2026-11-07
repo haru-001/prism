@@ -10,6 +10,8 @@ import { useApp } from "../AppContext";
 import { imgSrc, thumbOf } from "@/lib/client/thumb";
 import { IdolAvatar } from "../Logo";
 import { RinneInline } from "../rinne/RinneInline";
+import { useRinne } from "../rinne/RinneProvider";
+import type { Mood } from "@/lib/rinne";
 import { ModelAvatar, copyText, toast } from "../ui";
 
 /**
@@ -116,6 +118,13 @@ export function Coach({ children, onOk }: { children: React.ReactNode; onOk: () 
   );
 }
 
+function msgMood(m: ChatMsg, streaming: boolean): Mood {
+  if (m.error) return "error";
+  if (m.pending && streaming) return m.mode === "image" ? "imaging" : "thinking";
+  if (m.mode === "image" && m.images?.length) return "success";
+  return "welcome";
+}
+
 export function MessageItem({
   m,
   isLast,
@@ -137,6 +146,17 @@ export function MessageItem({
 }) {
   const [showReason, setShowReason] = useState(false);
   const callName = useApp().name;
+  const rinneOn = useRinne().show;
+  // 这次会话里刚生成完的图：在图下面配一段棱音「成功」的短视频（刷新后看历史不再出现）
+  const [wasPending, setWasPending] = useState(!!m.pending);
+  const [justDone, setJustDone] = useState(false);
+  useEffect(() => {
+    if (m.pending) setWasPending(true);
+    else if (wasPending) {
+      setWasPending(false);
+      if (m.mode === "image" && m.images?.length && !m.error) setJustDone(true);
+    }
+  }, [m.pending]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (m.role === "notice")
     return (
@@ -163,7 +183,15 @@ export function MessageItem({
 
   return (
     <div className="group flex gap-3">
-      <ModelAvatar model={m.model} size={30} />
+      <div className="relative h-[30px] w-[30px] shrink-0">
+        <ModelAvatar model={m.model} size={30} />
+        {/* 棱音的状态小头像：流式输出时思考、出错时道歉、生图完成时庆祝，其余是欢迎 */}
+        {rinneOn && (
+          <span className="rn-msg-badge" data-testid="msg-rinne" data-mood={msgMood(m, streaming)} title="棱音">
+            <IdolAvatar size={18} mood={msgMood(m, streaming)} exact />
+          </span>
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2 text-xs text-muted">
           <span className="font-semibold text-ink/80">{m.model}</span>
@@ -197,6 +225,13 @@ export function MessageItem({
               {/* 结果图直接放在消息里占满宽度（以前塞在全身舞台左边的窄栏里，图被挤小） */}
               <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />
               {m.text && <p className="mt-2 text-[13px] leading-relaxed text-muted">{m.text}</p>}
+              {justDone && isLast && rinneOn && (
+                <div className="mt-2" data-testid="image-done-scene">
+                  <RinneInline mood="success" clip="image-done">
+                    <div className="pill !mx-0">图已生成，不满意可以点图片继续改。</div>
+                  </RinneInline>
+                </div>
+              )}
             </>
           ) : (
             !m.error && (

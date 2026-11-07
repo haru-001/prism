@@ -26,9 +26,9 @@ export function Brand({ small = false }: { small?: boolean }) {
 }
 
 /** 棱音头像：跟着当前服装和状态，64/128 两档，同域加载 */
-export function IdolAvatar({ size = 28, mood = "welcome", className = "" }: { size?: number; mood?: Mood; className?: string }) {
+export function IdolAvatar({ size = 28, mood = "welcome", exact = false, className = "" }: { size?: number; mood?: Mood; exact?: boolean; className?: string }) {
   const { outfit } = useRinne();
-  const a = avatarSrc(outfit, mood);
+  const a = avatarSrc(outfit, mood, exact);
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img

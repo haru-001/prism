@@ -79,7 +79,7 @@ export function DbSleeping({ kind = "down", overlay = false, onClose }: { kind?:
   // 棱音站在右边：休眠是端着东西静候，连接数满是思考，配置不对是报错；四步清单那一侧接到她手边
   const scene = (
     <div className="w-full max-w-4xl">
-      <RinneScene mood={cur === "busy" ? "thinking" : cur === "config" ? "error" : "waiting"} size="md" ly={60} steady mobfull testId="db-sleeping-scene" link={card} />
+      <RinneScene mood={cur === "busy" ? "thinking" : cur === "config" ? "error" : "waiting"} size="md" ly={60} steady mobfull testId="db-sleeping-scene" clip="idle-blink" replay={5000} link={card} />
     </div>
   );
   if (overlay)

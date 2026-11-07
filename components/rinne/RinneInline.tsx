@@ -10,7 +10,7 @@ import { useRinne } from "./RinneProvider";
  * 全身留给登录、引导、空对话、数据库休眠这类有整块空间的页面。
  * 「显示棱音」关掉时只留内容。
  */
-export function RinneInline({ mood, children, testId }: { mood: Mood; children: React.ReactNode; testId?: string }) {
+export function RinneInline({ mood, children, testId, clip }: { mood: Mood; children: React.ReactNode; testId?: string; clip?: import("./RinneClip").ClipId }) {
   const { show } = useRinne();
   if (!show)
     return (
@@ -21,7 +21,7 @@ export function RinneInline({ mood, children, testId }: { mood: Mood; children: 
   return (
     <div className="rn-inl" data-testid={testId} data-rinne-scene={mood}>
       <div className="rn-inl-body">{children}</div>
-      <RinneFigure mood={mood} size="chat" standalone className="rn-chat-fig" />
+      <RinneFigure mood={mood} size="chat" standalone className="rn-chat-fig" clip={clip} />
     </div>
   );
 }

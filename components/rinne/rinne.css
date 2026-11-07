@@ -277,3 +277,23 @@
 @media (min-width: 1024px) {
   .rn-ph { --H: 210px; }
 }
+
+/* ── 第三轮：更深的融入 ── */
+/* 回复旁的状态小头像，压在模型头像右下角 */
+.rn-msg-badge { position: absolute; right: -7px; bottom: -7px; border-radius: 9999px; background: linear-gradient(135deg, #a78bfa, #f0abfc); padding: 1px; box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
+.rn-msg-badge .rn-avatar { box-shadow: none; }
+
+/* 输入框探头提示：从输入框右上沿探出半身 */
+.rn-peek { position: absolute; right: 14px; bottom: 100%; z-index: 5; display: flex; align-items: flex-end; gap: 6px; pointer-events: none; }
+.rn-peek > * { pointer-events: auto; }
+.rn-peek-fig { flex: none; }
+.rn-peek-tip { margin-bottom: 18px; max-width: 240px; border-radius: 14px 14px 4px 14px; background: var(--card, #fff); border: 1px solid var(--rule, #e5e5ea); padding: 8px 10px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 6px 18px rgb(0 0 0 / .12); }
+.rn-peek[data-anim="1"] .rn-peek-fig { animation: rn-peek-up .45s cubic-bezier(.2,.9,.3,1.2) both; }
+.rn-peek[data-anim="1"] .rn-peek-tip { animation: rn-fade-in .3s .25s both; }
+@keyframes rn-peek-up { from { transform: translateY(70%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes rn-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* 侧边栏底部小立绘卡片 */
+.rn-side-card { position: relative; display: flex; align-items: flex-end; gap: 10px; margin: 6px 8px 8px; padding: 10px 10px 0 12px; border-radius: 16px; overflow: hidden; background: linear-gradient(135deg, rgb(167 139 250 / .18), rgb(240 171 252 / .14)); border: 1px solid var(--rule, #e5e5ea); min-height: 92px; }
+.rn-side-card .rn-side-info { flex: 1; min-width: 0; padding-bottom: 10px; font-size: 12px; line-height: 1.55; }
+.rn-side-card .rn-side-fig { flex: none; }

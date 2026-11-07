@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BUST_K, bustMeta, figureSrc, isBust, moodAlt, moodMeta, type Mood, type OutfitId, type StageSize } from "@/lib/rinne";
 import { preloadFigure } from "@/lib/client/rinne-load";
 import { useRinne } from "./RinneProvider";
+import { CLIP_MOOD, RinneClip, type ClipId } from "./RinneClip";
 
 const FADE_MS = 240;
 
@@ -35,6 +36,8 @@ export function RinneFigure({
   mobileH,
   className = "",
   standalone = false,
+  clip,
+  replay,
 }: {
   mood: Mood;
   size: StageSize;
@@ -45,6 +48,9 @@ export function RinneFigure({
   className?: string;
   /** 不在 RinneScene 里单独用（toast、提醒条）时为 true，自带尺寸档的高度 */
   standalone?: boolean;
+  /** 这个状态有短视频时叠在静态图上播（见 RinneClip） */
+  clip?: ClipId;
+  replay?: number;
 }) {
   const r = useRinne();
   const outfit = forcedOutfit ?? r.outfit;
@@ -154,6 +160,9 @@ export function RinneFigure({
           </picture>
         );
       })}
+      {clip && r.animate && shownTop === top && top.phase === "shown" && top.mood === CLIP_MOOD[clip] && (
+        <RinneClip clip={clip} outfit={top.outfit} bust={bust} replay={replay} />
+      )}
     </span>
   );
 }

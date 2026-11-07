@@ -29,3 +29,8 @@
   - 统一裁成头顶到大腿中部，只出 360px 高的一档（AVIF + WebP），下沿用 CSS 渐隐。
   - 组件是 `components/rinne/RinnePageHead.tsx`。
 - 头像只保留欢迎姿势那一张（界面里只用到它），其余状态的头像文件已删掉。
+
+## 第三轮（2026-11-06）：绿幕直出，不再抠图
+- 立绘全部重画（9 套 × 7 状态 + 9 套 × 6 功能页 = 117 张），每张动作不同。generate_image 在 #00FF00 绿幕上直出透明图，`scripts/rinne/degreen.py` 去绿：偏绿像素清掉（地面阴影）、去溢色、半透明处（头纱、发丝）再压绿、只留和人物连通的大块、alpha 中值滤波并内收 1px
+- 接入：`RINNE_DIRECT=1 RINNE_NEW=<去绿目录> RINNE_OLD=<上一版母版> python add_outfits.py lib/rinne-assets.json public/img/rinne <服装…>`，按头顶到脚底对齐上一版 welcome（`headtop.py` 用开运算去掉举过头顶的手）；然后 make_alpha.py、make_alpha_small.py、make_pages.py（RINNE_PAGE_CACHE 指向去绿后的页面图），不经过 u2net
+- 短视频：`make_clips.py`，母版 + 一张表情变化关键帧合成 WebM VP9 透明短片，放在 public/img/rinne/clips/{服装}/{idle-blink|login-wave|image-done}.webm，组件 RinneClip

@@ -185,8 +185,9 @@ export function figureSrc(o: OutfitId, m: Mood, size: StageSize, mobileH?: numbe
 const BIG_H: Partial<Record<StageSize, number>> = { lg: 500, md: 380 };
 
 /** 圆形头像（64 / 128）：界面里只用欢迎姿势的头像，其余状态不再单独出图（省体积） */
-export function avatarSrc(o: OutfitId, _m: Mood = "welcome") { // eslint-disable-line @typescript-eslint/no-unused-vars
-  const m: Mood = "welcome";
+export function avatarSrc(o: OutfitId, mood: Mood = "welcome", exact = false) {
+  // 一般场合头像只用欢迎姿势那一张；消息旁的状态头像（exact）才按状态取
+  const m: Mood = exact ? mood : "welcome";
   return { src: url(o, m, "-avatar", 4), srcSet: `${url(o, m, "-avatar", 4)} 1x, ${url(o, m, "-avatar-2x", 5)} 2x` };
 }
 

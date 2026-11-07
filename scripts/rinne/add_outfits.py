@@ -81,6 +81,60 @@ def bbox(a, thr=0.5):
     return xs[0], ys[0], xs[-1] + 1, ys[-1] + 1
 
 
+DIRECT = os.environ.get("RINNE_DIRECT") == "1"
+
+
+def place_direct(J, root, o, m, rgba):
+    from headtop import headtop
+    e = J["outfits"][o][m]
+    A = np.asarray(rgba)[..., 3]
+    x0, y0, x1, y1 = bbox(A)
+    t, _, _ = headtop(A)
+    # 参照：同服装上一版 welcome 的头顶和脚底位置
+    ro = o if os.path.isdir(os.path.join(OLD, o)) else REFO.get(o, o)
+    ref = np.asarray(Image.open(os.path.join(OLD, ro, "welcome.png")).convert("RGBA"))[..., 3]
+    rt, rb, _ = headtop(ref)
+    s = (rb - rt) / (y1 - t)
+    # 举手的姿势手会超出画布顶：整体缩小一点，让最高点留 4px
+    top = rb - (y1 - y0) * s
+    if top < 4:
+        s = (rb - 4) / (y1 - y0)
+    cut = rgba.crop((x0, y0, x1, y1))
+    nw, nh = max(1, round((x1 - x0) * s)), max(1, round((y1 - y0) * s))
+    fig = resize_rgba(cut, (nw, nh))
+    W = nw + 2 * PAD
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    canvas.paste(fig, (PAD, rb - nh), fig)
+    a = np.asarray(canvas)[..., 3].astype(np.float32)
+    ht, _, hcx = headtop(a)
+    body = rb - ht
+    # 头部中心：头顶往下 9% 身高内、头部附近（±8% 身高）的 alpha 加权中心
+    hh = round(body * 0.09)
+    lo, hi = max(0, hcx - round(body * 0.08)), min(W, hcx + round(body * 0.08))
+    head = a[ht : ht + hh, lo:hi]
+    cols = head.sum(0)
+    hxc = lo + float((cols * np.arange(hi - lo)).sum() / max(cols.sum(), 1))
+    band = a[ht : ht + round(body * BAND.get(f"{o}/{m}", 0.42))] > 128
+    rows = np.where(band.any(1))[0]
+    lx = [np.argmax(band[r]) for r in rows]
+    k = int(np.argmin(lx))
+    ax, ay = lx[k] + 3, ht + rows[k]
+    e.update(ar=round(W / H, 4), hx=round(ax / W, 4), hy=round(ay / H, 4), ty=round(ht / H, 4), bx=round(hxc / W, 4), alpha=1)
+    os.makedirs(os.path.join(MASTER, o), exist_ok=True)
+    canvas.save(os.path.join(MASTER, o, f"{m}.png"))
+    side = round(body * 0.2)
+    bx0 = round(hxc - side / 2)
+    by0 = max(0, ht - round(H * 0.01))
+    sq = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    sq.paste(canvas.crop((max(0, bx0), by0, min(W, bx0 + side), by0 + side)), (max(0, -bx0), 0))
+    d = os.path.join(root, o)
+    os.makedirs(d, exist_ok=True)
+    e["f"][4] = write(d, f"{m}-avatar", enc(resize_rgba(sq, (64, 64))), "webp")
+    e["f"][5] = write(d, f"{m}-avatar-2x", enc(resize_rgba(sq, (128, 128))), "webp")
+    e["avatarAlpha"] = 1
+    print("ok", o, m, e["ar"], e["hx"], e["hy"], flush=True)
+
+
 def main():
     meta, root, outfits = sys.argv[1], sys.argv[2], sys.argv[3].split(",")
     only = set(sys.argv[4].split(",")) if len(sys.argv) > 4 else None
@@ -98,8 +152,12 @@ def main():
             if only and f"{o}/{m}" not in only:
                 continue
             e = J["outfits"][o][m]
-            src = Image.open(os.path.join(NEW, f"new_{o}_{m}.png")).convert("RGB")
             key = f"{o}/{m}"
+            if DIRECT:
+                # 第三轮起：绿幕直出、已去绿的 RGBA，不再抠图；按「头顶到脚底」对齐（举过头顶的手不算身高）
+                place_direct(J, root, o, m, Image.open(os.path.join(NEW, f"new_{o}_{m}.png")).convert("RGBA"))
+                continue
+            src = Image.open(os.path.join(NEW, f"new_{o}_{m}.png")).convert("RGB")
             base = make_alpha.soft_mask
             if key in PROP_DIFF:
                 make_alpha.soft_mask = with_props(src, base)
