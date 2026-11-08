@@ -68,6 +68,11 @@ function* eventsFromChunk(j: Record<string, any>, state: { finish?: string; usag
   const cand = j.candidates?.[0];
   for (const p of cand?.content?.parts || []) {
     if (typeof p.text === "string" && p.text) yield p.thought ? { type: "reasoning" as const, text: p.text } : { type: "text" as const, text: p.text };
+    // 生图模型（gemini-*-image 等）在对话里直接返回图片
+    const d = p.inlineData || p.inline_data;
+    if (d?.data && !p.thought) yield { type: "image" as const, data: d.data as string, mime: (d.mimeType || d.mime_type || "image/png") as string };
+    const f = p.fileData || p.file_data;
+    if ((f?.fileUri || f?.file_uri) && !p.thought) yield { type: "image" as const, url: (f.fileUri || f.file_uri) as string };
   }
   if (cand?.finishReason) state.finish = cand.finishReason;
   if (j.usageMetadata) {

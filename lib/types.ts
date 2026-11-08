@@ -65,6 +65,8 @@ export interface IUsage {
 export type IChatEvent =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
+  /** 模型在对话里直接产出的图片（Gemini inlineData、OpenRouter 的 images、内容数组里的 image_url 等） */
+  | { type: "image"; data?: string; mime?: string; url?: string }
   | { type: "usage"; usage: IUsage }
   | { type: "finish"; reason: string };
 

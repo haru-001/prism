@@ -291,11 +291,12 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
   async function streamOne(aid: string, pk: Picked, history: ChatMsg[], signal: AbortSignal, group?: string) {
     let text = "";
     let reasoning = "";
+    const images: string[] = [];
     let dirty = false;
     const flush = () => {
       if (!dirty) return;
       dirty = false;
-      patch(aid, { text, reasoning: reasoning || undefined });
+      patch(aid, { text, reasoning: reasoning || undefined, ...(images.length ? { images: [...images] } : {}) });
     };
     const timer = setInterval(flush, 50);
     try {
@@ -318,6 +319,10 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
         } else if (ev === "reasoning") {
           reasoning += d.t as string;
           dirty = true;
+        } else if (ev === "image") {
+          // 模型在对话里直接给的图（已经存成站内地址）
+          if (typeof d.url === "string" && d.url) images.push(d.url);
+          dirty = true;
         } else if (ev === "notice") {
           const n: ChatMsg = { id: uid(), role: "notice", text: d.text as string, createdAt: Date.now() };
           setMessages((list) => {
@@ -332,7 +337,7 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
       });
     } catch (e) {
       if ((e as Error).name !== "AbortError") patch(aid, { error: { title: "请求失败", message: (e as Error).message } });
-      else if (!text) patch(aid, { text: `*${copy.chat.stopped}*` });
+      else if (!text && !images.length) patch(aid, { text: `*${copy.chat.stopped}*` });
     } finally {
       clearInterval(timer);
       dirty = true;
@@ -908,6 +913,7 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
                 onRegenVideo={() => regenVideo(m)}
                 firstErrorTip={m.id === firstErrorId}
                 onFirstErrorSeen={() => markTip("first-error")}
+                promptDone={m.role === "user" && (m.mode === "image" || m.mode === "video") && !!(messages[i + 1]?.images?.length || messages[i + 1]?.video)}
               />
             );
           })}

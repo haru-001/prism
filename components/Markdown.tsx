@@ -1,7 +1,7 @@
 "use client";
 
 import { isValidElement, memo, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Copy } from "lucide-react";
@@ -35,6 +35,8 @@ function Pre({ children }: { children?: ReactNode }) {
 }
 
 const PLUGINS_REMARK = [remarkGfm];
+/** 默认会清掉 data: 地址；旧消息里内嵌的 base64 图片要留着（只放行图片，链接仍按默认规则） */
+const urlTransform = (url: string, key: string) => (key === "src" && /^data:image\/(png|jpe?g|gif|webp|avif);base64,/i.test(url) ? url : defaultUrlTransform(url));
 const PLUGINS_REHYPE: NonNullable<Parameters<typeof ReactMarkdown>[0]["rehypePlugins"]> = [[rehypeHighlight, { detect: true, ignoreMissing: true }]];
 const COMPONENTS: NonNullable<Parameters<typeof ReactMarkdown>[0]["components"]> = {
   pre: Pre,
@@ -53,7 +55,7 @@ const COMPONENTS: NonNullable<Parameters<typeof ReactMarkdown>[0]["components"]>
 
 const Block = memo(function Block({ text }: { text: string }) {
   return (
-    <ReactMarkdown remarkPlugins={PLUGINS_REMARK} rehypePlugins={PLUGINS_REHYPE} components={COMPONENTS}>
+    <ReactMarkdown remarkPlugins={PLUGINS_REMARK} rehypePlugins={PLUGINS_REHYPE} components={COMPONENTS} urlTransform={urlTransform}>
       {text}
     </ReactMarkdown>
   );
@@ -100,6 +102,7 @@ function MarkdownInner({ text, streaming }: { text: string; streaming?: boolean 
         remarkPlugins={PLUGINS_REMARK}
         rehypePlugins={PLUGINS_REHYPE}
         components={COMPONENTS}
+        urlTransform={urlTransform}
       >
         {text}
       </ReactMarkdown>

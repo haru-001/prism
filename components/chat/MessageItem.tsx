@@ -152,6 +152,7 @@ export function MessageItem({
   onRegenVideo,
   firstErrorTip,
   onFirstErrorSeen,
+  promptDone,
 }: {
   m: ChatMsg;
   isLast: boolean;
@@ -163,8 +164,12 @@ export function MessageItem({
   onRegenVideo?: () => void;
   firstErrorTip?: boolean;
   onFirstErrorSeen?: () => void;
+  /** 生图/视频的提示词，后面已经出了结果：默认折叠成一行 */
+  promptDone?: boolean;
 }) {
   const [showReason, setShowReason] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [revisedOpen, setRevisedOpen] = useState(false);
   const callName = useApp().name;
   const { show: rinneOn, outfit } = useRinne();
   // 这次会话里刚生成完的图：在图下面配一段棱音「成功」的短视频（刷新后看历史不再出现）
@@ -190,13 +195,32 @@ export function MessageItem({
     return (
       <div className="flex flex-col items-end gap-2">
         {!!m.images?.length && <ImageGrid urls={m.images} small />}
-        {m.text && (
-          <div className="grad max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-sm">
-            {m.mode === "image" && <span className="mr-1.5 rounded bg-white/20 px-1.5 py-px text-[11px]">生图</span>}
-            {m.mode === "video" && <span className="mr-1.5 rounded bg-white/20 px-1.5 py-px text-[11px]">视频</span>}
-            {m.text}
-          </div>
-        )}
+        {m.text &&
+          (promptDone && !promptOpen ? (
+            // 已经出图/出视频的旧提示词：折叠成一行，点开看全文
+            <button
+              type="button"
+              className="flex max-w-[85%] items-center gap-1.5 rounded-full border border-rule bg-card px-3 py-1 text-left text-[12px] text-muted hover:text-ink"
+              onClick={() => setPromptOpen(true)}
+              title="展开提示词"
+              data-testid="prompt-folded"
+            >
+              <span className="shrink-0 rounded bg-soft px-1.5 py-px text-[11px]">{m.mode === "video" ? "视频" : "生图"}</span>
+              <span className="min-w-0 truncate">{m.text}</span>
+              <ChevronDown size={12} className="shrink-0" />
+            </button>
+          ) : (
+            <div className="grad max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-sm">
+              {m.mode === "image" && <span className="mr-1.5 rounded bg-white/20 px-1.5 py-px text-[11px]">生图</span>}
+              {m.mode === "video" && <span className="mr-1.5 rounded bg-white/20 px-1.5 py-px text-[11px]">视频</span>}
+              {m.text}
+              {promptDone && (
+                <button type="button" className="ml-2 align-middle text-[11px] text-white/70 hover:text-white" onClick={() => setPromptOpen(false)}>
+                  收起
+                </button>
+              )}
+            </div>
+          ))}
       </div>
     );
 
@@ -251,7 +275,16 @@ export function MessageItem({
             <>
               {/* 结果图直接放在消息里占满宽度（以前塞在全身舞台左边的窄栏里，图被挤小） */}
               <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} onAnimate={onAnimateImage} />
-              {m.text && <p className="mt-2 text-[13px] leading-relaxed text-muted">{m.text}</p>}
+              {m.text && (
+                // 模型改写后的提示词：默认收起，需要时再看
+                <div className="mt-2">
+                  <button className="chip" onClick={() => setRevisedOpen((v) => !v)} data-testid="revised-toggle">
+                    <PencilLine size={12} /> {revisedOpen ? "收起提示词" : "查看提示词"}
+                    <ChevronDown size={12} className={revisedOpen ? "rotate-180" : ""} />
+                  </button>
+                  {revisedOpen && <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{m.text}</p>}
+                </div>
+              )}
               {justDone && isLast && rinneOn && (
                 <div className="mt-2" data-testid="image-done-scene">
                   <RinneInline mood="success" clip="image-done">
@@ -281,7 +314,7 @@ export function MessageItem({
               <div className={m.pending && streaming ? "typing-caret-wrap" : ""}>
                 <Markdown text={m.text} streaming={m.pending && streaming} />
               </div>
-            ) : (
+            ) : m.images?.length ? null : (
               m.pending ? (
                 <RinneInline mood="thinking" testId="thinking-scene">
                   <div className="w-full max-w-xs" role="status">
@@ -299,6 +332,12 @@ export function MessageItem({
                   </div>
                 )
               )
+            )}
+            {/* 对话模型直接生成的图片（Gemini 生图、OpenRouter images 等），点图可继续改或做成视频 */}
+            {!!m.images?.length && (
+              <div className={m.text ? "mt-2" : ""} data-testid="chat-images">
+                <ImageGrid urls={m.images} onEdit={onEditImage} onAnimate={onAnimateImage} />
+              </div>
             )}
           </>
         )}
