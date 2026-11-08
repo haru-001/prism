@@ -6,7 +6,8 @@ import { RinneScene } from "@/components/rinne/RinneScene";
 import { RinneBubble } from "@/components/rinne/RinneBubble";
 import { useRinne } from "@/components/rinne/RinneProvider";
 import { preloadFigure } from "@/lib/client/rinne-load";
-import { rinneLine } from "@/lib/rinne-lines";
+import { rinneLine, videoErrorScene } from "@/lib/rinne-lines";
+import type { VideoTaskView } from "@/lib/video";
 import { Check, Code2, Download, Eye, FileDown, HeartPulse, Menu, Palette, ScrollText } from "lucide-react";
 import type { ChatMsg, Conversation, ModelGroup, Preset } from "@/lib/types";
 import { api, readEvents, uid, notifyDbDown } from "@/lib/client/api";
@@ -17,7 +18,7 @@ import { IdolAvatar } from "../Logo";
 import { toast } from "../ui";
 import { ModelPicker, type Picked } from "./ModelPicker";
 import { RinnePeek } from "../rinne/RinnePeek";
-import { Composer, type ImageOpts } from "./Composer";
+import { Composer, resolveService, serviceLabel, type ImageOpts, type VideoCfgView, type VideoOpts } from "./Composer";
 import { Coach, MessageItem, loadMarkdown } from "./MessageItem";
 
 function firstModel(catalog: ModelGroup[], wantImage: boolean, prefer?: string): Picked | undefined {
@@ -52,7 +53,10 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
   const [createdAt, setCreatedAt] = useState(Date.now());
   const [system, setSystem] = useState("");
   const [temperature, setTemperature] = useState(0.7);
-  const [mode, setModeState] = useState<"chat" | "image">("chat");
+  const [mode, setModeState] = useState<"chat" | "image" | "video">("chat");
+  const [videoOpts, setVideoOpts] = useState<VideoOpts>({ mode: "t2v", service: "", duration: 3, aspect: "16:9", images: [null, null] });
+  /** 视频服务配置：undefined = 还没读；null = 读失败 */
+  const [videoCfg, setVideoCfg] = useState<VideoCfgView | null | undefined>(undefined);
   const [chatModel, setChatModel] = useState<Picked>();
   const [imageModel, setImageModel] = useState<Picked>();
   const [input, setInput] = useState("");
@@ -71,6 +75,18 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
   const textRef = useRef<HTMLTextAreaElement>(null);
   const msgsRef = useRef<ChatMsg[]>([]);
   msgsRef.current = messages;
+  /** 正在轮询的视频任务：消息 id → 定时器；组件卸载时全部停掉（服务端照常生成，回来时接着查） */
+  const pollsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    const polls = pollsRef.current;
+    return () => {
+      aliveRef.current = false;
+      polls.forEach((t) => clearTimeout(t));
+      polls.clear();
+    };
+  }, []);
 
   // 空闲时预加载 Markdown 渲染模块（第一条回答出来时就不用再等它下载）
   useEffect(() => {
@@ -86,6 +102,13 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
     if (!initialId) return;
     let alive = true;
     const apply = (c: Conversation) => {
+      // 提交到一半就刷新（还没拿到任务 id）的视频：标成失败，可以点重试
+      c = {
+        ...c,
+        messages: c.messages.map((m) =>
+          m.mode === "video" && m.pending && !m.task?.id ? { ...m, pending: false, error: { title: "提交中断", message: "页面在提交时被刷新或关闭了，这次没有交出去。可以点重试。", kind: "bad" } } : m,
+        ),
+      };
       setMessages(c.messages);
       setTitle(c.title);
       setCreatedAt(c.createdAt);
@@ -93,6 +116,8 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
       if (c.temperature != null) setTemperature(c.temperature);
       if (c.model) setChatModel((p) => p || { model: c.model! });
       setLoaded(true);
+      // 刷新页面前还在生成的视频：接着查进度
+      for (const m of c.messages) if (m.mode === "video" && m.pending && m.task?.id) pollVideo(m.id, m.task.id, { id: c.id, t: c.title });
     };
     const cached = peekConv(initialId);
     if (cached) apply(cached);
@@ -156,12 +181,19 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  const loadVideoCfg = useCallback(() => {
+    api<{ config: VideoCfgView }>("/api/video/config")
+      .then((r) => setVideoCfg(r.config))
+      .catch(() => setVideoCfg(null));
+  }, []);
+
   const setMode = useCallback(
-    (m: "chat" | "image") => {
+    (m: "chat" | "image" | "video") => {
       setModeState(m);
       if (m === "image" && !imageModel) setImageModel(firstModel(catalog, true, settings.defaultImageModel));
+      if (m === "video") loadVideoCfg();
     },
-    [imageModel, catalog, settings.defaultImageModel],
+    [imageModel, catalog, settings.defaultImageModel, loadVideoCfg],
   );
 
   const current = mode === "image" ? imageModel : chatModel;
@@ -174,11 +206,12 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
       const conv: Conversation = {
         id,
         title: t,
-        hasImage: msgs.some((m) => m.mode === "image"),
+        hasImage: msgs.some((m) => m.mode === "image" || m.mode === "video"),
         model: chatModel?.model,
         system: system || undefined,
         temperature,
-        messages: msgs.filter((m) => !m.pending),
+        // 还在生成的视频也存下来（带着任务 id），刷新或换设备打开时能接着查进度
+        messages: msgs.filter((m) => !m.pending || (m.mode === "video" && !!m.task?.id)),
         createdAt,
         updatedAt: Date.now(),
       };
@@ -370,23 +403,171 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
     }
   }
 
+  // ===== 视频 =====
+  /** 把服务端的任务状态换算成消息要改的字段 */
+  function taskPatch(t: VideoTaskView): { state: "pending" | "done" | "failed"; p: Partial<ChatMsg> } {
+    if (t.status === "done" && t.result) {
+      return { state: "done", p: { pending: false, task: undefined, video: t.result, latencyMs: t.latencyMs, channel: t.label, error: undefined } };
+    }
+    if (t.status === "failed") {
+      const e = t.error || { kind: "unknown", title: "生成失败", message: "没有说明原因。" };
+      // Key 的问题：重新读一次视频设置，输入区的「还没添加 Key」提示跟着更新
+      if (e.kind === "key" || e.kind === "nokey") loadVideoCfg();
+      return {
+        state: "failed",
+        p: {
+          pending: false,
+          task: undefined,
+          latencyMs: t.latencyMs,
+          error: { title: e.title, message: e.message, kind: e.kind, fix: e.kind === "key" || e.kind === "nokey" || e.kind === "space" ? "video" : undefined },
+        },
+      };
+    }
+    const p: Partial<ChatMsg> = {
+      task: { id: t.id, startedAt: t.startedAt, eta: t.eta, status: t.status, phase: t.phase, queue: t.queue, progress: t.progress, label: t.label },
+    };
+    if (t.label) p.model = t.label;
+    return { state: "pending", p };
+  }
+  /** 把服务端的任务状态写进消息 */
+  function applyTask(aid: string, t: VideoTaskView) {
+    const r = taskPatch(t);
+    patch(aid, r.p);
+    return r.state;
+  }
+
+  /** 每隔几秒查一次任务状态：第一分钟 2.5 秒一次，之后 4 秒一次；查询失败不算任务失败，接着查 */
+  function pollVideo(aid: string, taskId: string, conv: { id: string; t: string }) {
+    const polls = pollsRef.current;
+    if (polls.has(aid)) return;
+    let misses = 0;
+    const started = Date.now();
+    const tick = async () => {
+      if (!aliveRef.current) return;
+      let t: VideoTaskView | null = null;
+      try {
+        t = (await api<{ task: VideoTaskView }>(`/api/video/${taskId}`)).task;
+        misses = 0;
+      } catch (e) {
+        const st = (e as { status?: number }).status;
+        if (st === 404) t = { id: taskId, status: "failed", startedAt: started, eta: 0, error: { kind: "unknown", title: "任务不见了", message: (e as Error).message } };
+        else if (++misses > 20) t = { id: taskId, status: "failed", startedAt: started, eta: 0, error: { kind: "network", title: "查不到进度", message: "连续多次查询失败，请检查网络后刷新页面。" } };
+      }
+      if (!aliveRef.current) return;
+      const tp = t ? taskPatch(t) : null;
+      if (tp) patch(aid, tp.p);
+      if (!tp || tp.state === "pending") {
+        polls.set(aid, setTimeout(tick, Date.now() - started < 60_000 ? 2500 : 4000));
+        return;
+      }
+      polls.delete(aid);
+      if (tp.state === "done") toast(rinneLine(rinneOutfit, "videoDone"), "ok");
+      else toast(rinneLine(rinneOutfit, videoErrorScene(t?.error?.kind)), "err");
+      void save(
+        msgsRef.current.map((m) => (m.id === aid ? { ...m, ...tp.p } : m)),
+        conv.id,
+        conv.t,
+      );
+    };
+    polls.set(aid, setTimeout(tick, 1500));
+  }
+
+  async function runVideo(prompt: string, opts: VideoOpts, history: ChatMsg[], conv: { id: string; t: string }) {
+    const sel = resolveService(opts, videoCfg);
+    const need = opts.mode === "t2v" ? 0 : opts.mode === "i2v" ? 1 : 2;
+    const images = opts.images.slice(0, need).filter((x): x is string => !!x);
+    const aid = uid();
+    const meta: NonNullable<ChatMsg["videoMeta"]> = {
+      prompt,
+      mode: opts.mode,
+      provider: sel.provider,
+      space: sel.space,
+      duration: sel.provider === "hf" ? opts.duration : undefined,
+      aspect: opts.mode === "t2v" ? opts.aspect : undefined,
+      images: images.length ? images : undefined,
+    };
+    const assistant: ChatMsg = {
+      id: aid,
+      role: "assistant",
+      text: "",
+      mode: "video",
+      model: serviceLabel(sel.provider, sel.space, opts.mode),
+      pending: true,
+      videoMeta: meta,
+      task: { id: "", startedAt: Date.now(), eta: 60, status: "queued", phase: "queue" },
+      createdAt: Date.now(),
+    };
+    setMessages([...history, assistant]);
+    stickRef.current = true;
+    try {
+      const r = await api<{ task: VideoTaskView }>("/api/video", { body: { ...meta, images, convId: conv.id, msgId: aid } });
+      const { state, p } = taskPatch(r.task);
+      patch(aid, p);
+      // 立刻存一次（带着任务 id）：这时 React 可能还没重新渲染，所以直接把这次的改动拼进去，不等 msgsRef 更新
+      void save(
+        msgsRef.current.map((m) => (m.id === aid ? { ...m, ...p } : m)),
+        conv.id,
+        conv.t,
+      );
+      if (state === "pending") pollVideo(aid, r.task.id, conv);
+      else if (state === "failed") toast(rinneLine(rinneOutfit, videoErrorScene(r.task.error?.kind)), "err");
+    } catch (e) {
+      patch(aid, { pending: false, task: undefined, error: { title: "提交失败", message: (e as Error).message, kind: "bad" } });
+      setTimeout(() => void save(msgsRef.current, conv.id, conv.t), 0);
+    }
+  }
+
+  function regenVideo(m: ChatMsg) {
+    const v = m.videoMeta;
+    if (!v) return;
+    const service = v.provider === "zhipu" ? "zhipu" : v.space ? `hf:${v.space}` : "";
+    void runVideo(
+      v.prompt,
+      { mode: v.mode, service, duration: v.duration || 3, aspect: v.aspect || "16:9", images: [v.images?.[0] || null, v.images?.[1] || null] },
+      msgsRef.current,
+      { id: convId, t: title },
+    );
+  }
+
+  /** 把一张图当作首帧，切到「图生视频」 */
+  function animateImage(url: string) {
+    setMode("video");
+    setVideoOpts((o) => ({ ...o, mode: "i2v", service: o.service.startsWith("hf:") ? "" : o.service, images: [url, null] }));
+    textRef.current?.focus();
+  }
+
   // ===== 发送 =====
   function send(override?: { text?: string; mode?: "chat" | "image" }) {
     if (streaming) return;
     // 发出去之前先把接下来要用的半身像（思考、出错、生图）下载解码好，切换时不会空一下
-    for (const m of ["thinking", "error", "imaging"] as const) void preloadFigure(rinneOutfit, m, "chat").catch(() => {});
+    for (const m of ["thinking", "error", "imaging", ...(mode === "video" ? (["waiting", "success"] as const) : [])] as const) void preloadFigure(rinneOutfit, m, "chat").catch(() => {});
     let text = (override?.text ?? input).trim();
-    if (!text) return;
+    if (!text && !(mode === "video" && videoOpts.mode !== "t2v")) return;
     let m = override?.mode ?? mode;
-    if (/^\/(图|img|image)\s*/i.test(text)) {
+    if (/^\/(视频|video)(\s|$)/i.test(text)) {
+      text = text.replace(/^\/(视频|video)\s*/i, "").trim();
+      m = "video";
+      if (videoCfg === undefined) loadVideoCfg();
+      if (!text && videoOpts.mode === "t2v") return toast("请在 /视频 后面写上画面描述");
+    } else if (/^\/(图|img|image)\s*/i.test(text)) {
       text = text.replace(/^\/(图|img|image)\s*/i, "").trim();
       m = "image";
       if (!text) return toast("请在 /图 后面写上画面描述");
     }
     if (showIntro) markTip("chat-intro");
-    const conv = ensureConv(text);
+    const conv = ensureConv(text || "视频");
     const base = msgsRef.current;
-    if (m === "image") {
+    if (m === "video") {
+      const opts = { ...videoOpts, images: [...videoOpts.images] };
+      const need = opts.mode === "t2v" ? 0 : opts.mode === "i2v" ? 1 : 2;
+      if (opts.images.slice(0, need).filter(Boolean).length < need) return toast(need === 2 ? "首尾帧要放两张图" : "图生视频要先放一张图");
+      const label = opts.mode === "t2v" ? "" : opts.mode === "i2v" ? "（图生视频）" : "（首尾帧）";
+      const imgs = opts.images.slice(0, need).filter((x): x is string => !!x);
+      const user: ChatMsg = { id: uid(), role: "user", text: text || `让画面动起来${label}`, mode: "video", images: imgs.length ? imgs : undefined, createdAt: Date.now() };
+      setInput("");
+      setVideoOpts((o) => ({ ...o, images: [null, null] }));
+      void runVideo(text, opts, [...base, user], conv);
+    } else if (m === "image") {
       const opts = { ...imageOpts };
       const user: ChatMsg = { id: uid(), role: "user", text, mode: "image", images: opts.refs.length ? opts.refs : undefined, createdAt: Date.now() };
       setInput("");
@@ -718,7 +899,9 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
                 streaming={streaming}
                 onRegenerate={!streaming ? regenerate : undefined}
                 onEditImage={editImage}
+                onAnimateImage={animateImage}
                 onRegenImage={!streaming ? () => regenImage(m) : undefined}
+                onRegenVideo={() => regenVideo(m)}
                 firstErrorTip={m.id === firstErrorId}
                 onFirstErrorSeen={() => markTip("first-error")}
               />
@@ -762,6 +945,9 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
         <Composer
           mode={mode}
           setMode={setMode}
+          videoOpts={videoOpts}
+          setVideoOpts={setVideoOpts}
+          videoCfg={videoCfg}
           input={input}
           setInput={setInput}
           attachments={attachments}

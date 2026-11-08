@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Columns3, Check, Eye, ImagePlus, Loader2, MessageSquare, Paperclip, Palette, Square, Thermometer, X, ScrollText, Settings2 } from "lucide-react";
+import { ArrowUp, Columns3, Check, Eye, Film, HelpCircle, ImagePlus, Loader2, MessageSquare, Paperclip, Palette, Square, Thermometer, X, ScrollText, Settings2 } from "lucide-react";
 import Link from "next/link";
 import type { ModelGroup, Preset } from "@/lib/types";
 import type { Picked } from "./ModelPicker";
@@ -9,6 +9,41 @@ import { uploadImage } from "@/lib/client/api";
 import { copy } from "@/lib/copy";
 import { toast } from "../ui";
 import { imgSrc } from "@/lib/client/thumb";
+import { HF_PRESETS, VIDEO_MODES, VIDEO_PROVIDERS, parseHfChoice, type VideoAspect, type VideoMode, type VideoProvider } from "@/lib/video";
+
+/** 视频模式的选项：子模式、服务（hf:预设 id / hf:custom:… / zhipu）、时长、画面比例、首尾帧图片 */
+export interface VideoOpts {
+  mode: VideoMode;
+  /** 空字符串 = 用设置里的默认 */
+  service: string;
+  duration: number;
+  aspect: VideoAspect;
+  /** [首帧/参考图, 尾帧] */
+  images: (string | null)[];
+}
+
+/** 设置里的视频服务配置（浏览器只拿到打码的 Key 提示） */
+export interface VideoCfgView {
+  keys: Partial<Record<VideoProvider, { hint: string }>>;
+  provider: VideoProvider;
+  hfSpace: Record<VideoMode, string>;
+}
+
+/** 把选项里的 service 解析成实际提交的 provider / space（空 = 设置里的默认） */
+export function resolveService(o: VideoOpts, cfg?: VideoCfgView | null): { provider: VideoProvider; space?: string } {
+  const s = o.service;
+  if (s === "zhipu") return { provider: "zhipu" };
+  if (s.startsWith("hf:")) return { provider: "hf", space: s.slice(3) };
+  const provider = cfg?.provider || "hf";
+  if (provider === "zhipu" && !VIDEO_PROVIDERS[1].modes.includes(o.mode)) return { provider: "hf", space: cfg?.hfSpace?.[o.mode] };
+  return provider === "hf" ? { provider, space: cfg?.hfSpace?.[o.mode] } : { provider };
+}
+
+export function serviceLabel(provider: VideoProvider, space: string | undefined, mode: VideoMode) {
+  if (provider === "zhipu") return "智谱 CogVideoX-Flash";
+  const c = parseHfChoice(space, mode);
+  return c.preset ? `HF · ${c.preset.name}` : `HF · ${c.space}`;
+}
 
 export interface ImageOpts {
   size: string;
@@ -35,8 +70,11 @@ function Num({ n }: { n: number }) {
 }
 
 export function Composer(p: {
-  mode: "chat" | "image";
-  setMode: (m: "chat" | "image") => void;
+  mode: "chat" | "image" | "video";
+  setMode: (m: "chat" | "image" | "video") => void;
+  videoOpts?: VideoOpts;
+  setVideoOpts?: (f: (o: VideoOpts) => VideoOpts) => void;
+  videoCfg?: VideoCfgView | null;
   input: string;
   setInput: (s: string) => void;
   attachments: string[];
@@ -70,7 +108,11 @@ export function Composer(p: {
   const sameModel = (a: Picked, b?: Picked) => !!b && a.model === b.model && (a.channelId || "") === (b.channelId || "");
   const [drag, setDrag] = useState(false);
   const isImage = p.mode === "image";
+  const isVideo = p.mode === "video";
   const popRef = useRef<HTMLDivElement>(null);
+  /** 视频模式下这次选的图放进哪一格：0 首帧 / 1 尾帧 */
+  const slotRef = useRef(0);
+  const vo = p.videoOpts;
 
   useEffect(() => {
     const el = p.textRef.current;
@@ -95,7 +137,15 @@ export function Composer(p: {
     for (const f of imgs) {
       try {
         const url = await uploadImage(f);
-        if (isImage) p.setImageOpts((o) => ({ ...o, refs: [...o.refs, url].slice(-4) }));
+        if (isVideo && p.setVideoOpts) {
+          const slot = slotRef.current;
+          p.setVideoOpts((o) => {
+            const images = [...o.images];
+            images[slot] = url;
+            return { ...o, images };
+          });
+          slotRef.current = Math.min(1, slot + 1);
+        } else if (isImage) p.setImageOpts((o) => ({ ...o, refs: [...o.refs, url].slice(-4) }));
         else p.setAttachments((a) => [...a, url].slice(-6));
       } catch (e) {
         toast((e as Error).message, "err");
@@ -105,11 +155,18 @@ export function Composer(p: {
     }
   }
 
-  const thumbs = isImage ? p.imageOpts.refs : p.attachments;
+  const thumbs = isVideo ? [] : isImage ? p.imageOpts.refs : p.attachments;
   const removeThumb = (u: string) =>
     isImage ? p.setImageOpts((o) => ({ ...o, refs: o.refs.filter((x) => x !== u) })) : p.setAttachments((a) => a.filter((x) => x !== u));
 
-  const canSend = !!p.input.trim() && !uploading;
+  // 视频：要的图得齐；文生视频必须写描述，图生 / 首尾帧可以不写（用 Space 的默认描述）
+  const vMode = VIDEO_MODES.find((m) => m.id === vo?.mode);
+  const vImagesOk = !isVideo || !vMode || vo!.images.slice(0, vMode.images).filter(Boolean).length >= vMode.images;
+  const canSend = (isVideo ? !!p.input.trim() || (!!vMode && vMode.images > 0) : !!p.input.trim()) && vImagesOk && !uploading;
+  const vSel = isVideo && vo ? resolveService(vo, p.videoCfg) : null;
+  const vPreset = vSel?.provider === "hf" ? parseHfChoice(vSel.space, vo!.mode).preset : undefined;
+  const vMaxSec = vPreset?.maxSec ?? 6;
+  const vNoKey = !!vSel && p.videoCfg !== undefined && p.videoCfg !== null && !p.videoCfg.keys[vSel.provider];
 
   return (
     <div
@@ -157,9 +214,78 @@ export function Composer(p: {
           >
             <Palette size={13} /> 生图
           </button>
+          {p.setVideoOpts && (
+            <button
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${isVideo ? "bg-card text-ink shadow-sm" : "text-muted"}`}
+              onClick={() => p.setMode("video")}
+              data-testid="mode-video"
+            >
+              <Film size={13} /> 视频
+            </button>
+          )}
         </div>
 
-        {isImage ? (
+        {isVideo && vo && p.setVideoOpts ? (
+          <>
+            <div className="flex rounded-xl border border-rule p-0.5" role="radiogroup" aria-label="视频模式">
+              {VIDEO_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  role="radio"
+                  aria-checked={vo.mode === m.id}
+                  data-testid={`vmode-${m.id}`}
+                  className={`rounded-lg px-2 py-0.5 text-xs transition ${vo.mode === m.id ? "bg-acc/15 font-semibold text-acc-ink" : "text-muted hover:text-ink"}`}
+                  onClick={() => p.setVideoOpts!((o) => ({ ...o, mode: m.id, service: o.service === "zhipu" && m.id === "flf" ? "" : o.service.startsWith("hf:") ? "" : o.service }))}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+            <select
+              className="chip max-w-[46vw] cursor-pointer outline-none sm:max-w-[260px]"
+              value={vo.service}
+              data-testid="video-service"
+              title="用哪个视频服务"
+              onChange={(e) => p.setVideoOpts!((o) => ({ ...o, service: e.target.value }))}
+            >
+              <option value="">默认（{vSel && !vo.service ? serviceLabel(vSel.provider, vSel.space, vo.mode) : "设置里选的"}）</option>
+              {HF_PRESETS.filter((x) => x.mode === vo.mode).map((x) => (
+                <option key={x.id} value={`hf:${x.id}`}>
+                  HF · {x.name}
+                </option>
+              ))}
+              {p.videoCfg?.hfSpace?.[vo.mode]?.startsWith("custom:") && (
+                <option value={`hf:${p.videoCfg.hfSpace[vo.mode]}`}>HF · {p.videoCfg.hfSpace[vo.mode].slice(7).split("#")[0]}（自填）</option>
+              )}
+              {VIDEO_PROVIDERS[1].modes.includes(vo.mode) && <option value="zhipu">智谱 CogVideoX-Flash（免费）</option>}
+            </select>
+            {vSel?.provider === "hf" && (
+              <select
+                className="chip cursor-pointer outline-none"
+                value={Math.min(vo.duration, vMaxSec)}
+                data-testid="video-duration"
+                title="视频时长：越长越慢，也越耗 GPU 额度"
+                onChange={(e) => p.setVideoOpts!((o) => ({ ...o, duration: Number(e.target.value) }))}
+              >
+                {[2, 3, 4, 5, 6, 8].filter((n) => n <= vMaxSec).map((n) => (
+                  <option key={n} value={n}>
+                    {n} 秒
+                  </option>
+                ))}
+              </select>
+            )}
+            {vo.mode === "t2v" && (
+              <select className="chip cursor-pointer outline-none" value={vo.aspect} onChange={(e) => p.setVideoOpts!((o) => ({ ...o, aspect: e.target.value as VideoAspect }))}>
+                <option value="16:9">16:9 横屏</option>
+                <option value="9:16">9:16 竖屏</option>
+                <option value="1:1">1:1 方形</option>
+              </select>
+            )}
+            <Link href="/settings#video" className="chip" title="视频服务的 Key、Space 和使用说明">
+              <HelpCircle size={13} /> 说明
+            </Link>
+          </>
+        ) : isImage ? (
           <>
             <button className="chip" onClick={() => p.fileInputRef.current?.click()}>
               <ImagePlus size={13} /> 参考图
@@ -315,9 +441,74 @@ export function Composer(p: {
         )}
       </div>
 
-      {!isImage && p.visionNotice && thumbs.length > 0 && <div className="mb-2">{p.visionNotice}</div>}
+      {!isImage && !isVideo && p.visionNotice && thumbs.length > 0 && <div className="mb-2">{p.visionNotice}</div>}
 
-      {(thumbs.length > 0 || uploading > 0) && (
+      {isVideo && vo && vMode && vMode.images > 0 && (
+        <div className="mb-2 flex flex-wrap items-end gap-2" data-testid="video-slots">
+          {Array.from({ length: vMode.images }).map((_, i) => {
+            const u = vo.images[i];
+            const label = vMode.images === 2 ? (i === 0 ? "首帧" : "尾帧") : "参考图";
+            return (
+              <div key={i} className="flex flex-col items-center gap-1">
+                {u ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={imgSrc(u)} alt={label} className="h-16 w-16 rounded-lg border border-rule object-cover" />
+                    <button
+                      className="absolute -right-1.5 -top-1.5 rounded-full bg-ink p-0.5 text-ground"
+                      aria-label={`移除${label}`}
+                      onClick={() =>
+                        p.setVideoOpts!((o) => {
+                          const images = [...o.images];
+                          images[i] = null;
+                          return { ...o, images };
+                        })
+                      }
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="flex h-16 w-16 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-rule text-[11px] text-muted hover:border-acc hover:text-acc-ink"
+                    data-testid={`video-slot-${i}`}
+                    onClick={() => {
+                      slotRef.current = i;
+                      p.fileInputRef.current?.click();
+                    }}
+                  >
+                    <ImagePlus size={16} />
+                    {label}
+                  </button>
+                )}
+                <span className="text-[10px] text-muted">{label}</span>
+              </div>
+            );
+          })}
+          {uploading > 0 && (
+            <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-rule text-muted">
+              <Loader2 size={18} className="animate-spin" />
+            </div>
+          )}
+          <p className="mb-5 min-w-0 flex-1 text-[11px] leading-snug text-muted">
+            {vMode.images === 2 ? "放开头和结尾两张图，描述写中间发生了什么。" : "放一张图，描述写它要怎么动；不写描述就让画面自然动起来。"}
+            {vSel?.provider === "zhipu" ? " 图片会压缩成 JPEG 后交给智谱。" : " 图片会先上传到 Space 的临时目录。"}
+          </p>
+        </div>
+      )}
+
+      {isVideo && vNoKey && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-warn/10 px-3 py-2 text-xs text-ink/80" data-testid="video-nokey">
+          <span className="min-w-0 flex-1">
+            还没有添加{vSel!.provider === "hf" ? " Hugging Face 令牌" : "智谱 API Key"}，提交后会直接失败。
+          </span>
+          <Link href="/settings#video" className="btn-ghost btn-sm">
+            去添加
+          </Link>
+        </div>
+      )}
+
+      {!isVideo && (thumbs.length > 0 || uploading > 0) && (
         <div className="mb-2 flex flex-wrap gap-2">
           {thumbs.map((u) => (
             <div key={u} className="relative">
@@ -360,7 +551,7 @@ export function Composer(p: {
               if (!p.streaming && canSend) p.onSend();
             }
           }}
-          placeholder={isImage ? copy.chat.placeholderImage : copy.chat.placeholder}
+          placeholder={isVideo ? copy.chat.placeholderVideo : isImage ? copy.chat.placeholderImage : copy.chat.placeholder}
           className="scroll-thin max-h-60 min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2.5 text-[15px] leading-relaxed outline-none placeholder:text-muted"
         />
         {p.streaming ? (

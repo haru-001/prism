@@ -9,6 +9,7 @@ const OFF_KEY = "rinne-peek-off";
 const IDLE_MS = 45_000;
 const TIPS = [
   "输入 /图 加描述，可以直接生图。",
+  "输入 /视频 加描述，可以生成一段短视频。",
   "点顶部的模型名，可以随时换模型。",
   "Shift + Enter 换行，Enter 发送。",
   "可以把图片拖进输入框，让支持识图的模型来看。",

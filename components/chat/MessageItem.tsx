@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Brain, ChevronDown, Copy, Download, PencilLine, RefreshCw, TriangleAlert } from "lucide-react";
+import { Brain, ChevronDown, Copy, Download, Film, PencilLine, RefreshCw, TriangleAlert } from "lucide-react";
 import type { ChatMsg } from "@/lib/types";
 import { fmtMs } from "@/lib/client/api";
 import { copy as C, fill } from "@/lib/copy";
@@ -13,6 +13,8 @@ import { RinneInline } from "../rinne/RinneInline";
 import { useRinne } from "../rinne/RinneProvider";
 import type { Mood } from "@/lib/rinne";
 import { ModelAvatar, copyText, toast } from "../ui";
+import { rinneLine, videoErrorScene } from "@/lib/rinne-lines";
+import { VideoPending, VideoResultView } from "./VideoMessage";
 
 /**
  * Markdown 渲染（含代码高亮）体积大，单独拆包按需加载：欢迎页不用下载它，
@@ -65,11 +67,14 @@ export function ImageGrid({
   urls,
   onEdit,
   onRegen,
+  onAnimate,
   small,
 }: {
   urls: string[];
   onEdit?: (url: string) => void;
   onRegen?: () => void;
+  /** 把这张图当首帧去做视频 */
+  onAnimate?: (url: string) => void;
   small?: boolean;
 }) {
   return (
@@ -98,6 +103,12 @@ export function ImageGrid({
                   以此继续改
                 </button>
               )}
+              {onAnimate && (
+                <button className="rounded-lg bg-white/90 px-2 py-1 text-xs text-[#1b1830] hover:bg-white" onClick={() => onAnimate(u)}>
+                  <Film size={12} className="mr-1 inline" />
+                  做成视频
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -120,6 +131,11 @@ export function Coach({ children, onOk }: { children: React.ReactNode; onOk: () 
 
 function msgMood(m: ChatMsg, streaming: boolean): Mood {
   if (m.error) return "error";
+  // 视频：排队时看表等候，生成时举着相机，出片后庆祝
+  if (m.mode === "video") {
+    if (m.pending) return !m.task?.id || m.task.phase === "queue" || m.task.phase === "upload" || m.task.status === "queued" ? "waiting" : "imaging";
+    return m.video ? "success" : "welcome";
+  }
   if (m.pending && streaming) return m.mode === "image" ? "imaging" : "thinking";
   if (m.mode === "image" && m.images?.length) return "success";
   return "welcome";
@@ -131,7 +147,9 @@ export function MessageItem({
   streaming,
   onRegenerate,
   onEditImage,
+  onAnimateImage,
   onRegenImage,
+  onRegenVideo,
   firstErrorTip,
   onFirstErrorSeen,
 }: {
@@ -140,13 +158,15 @@ export function MessageItem({
   streaming: boolean;
   onRegenerate?: () => void;
   onEditImage?: (url: string) => void;
+  onAnimateImage?: (url: string) => void;
   onRegenImage?: () => void;
+  onRegenVideo?: () => void;
   firstErrorTip?: boolean;
   onFirstErrorSeen?: () => void;
 }) {
   const [showReason, setShowReason] = useState(false);
   const callName = useApp().name;
-  const rinneOn = useRinne().show;
+  const { show: rinneOn, outfit } = useRinne();
   // 这次会话里刚生成完的图：在图下面配一段棱音「成功」的短视频（刷新后看历史不再出现）
   const [wasPending, setWasPending] = useState(!!m.pending);
   const [justDone, setJustDone] = useState(false);
@@ -154,7 +174,7 @@ export function MessageItem({
     if (m.pending) setWasPending(true);
     else if (wasPending) {
       setWasPending(false);
-      if (m.mode === "image" && m.images?.length && !m.error) setJustDone(true);
+      if ((m.mode === "image" && m.images?.length && !m.error) || (m.mode === "video" && m.video && !m.error)) setJustDone(true);
     }
   }, [m.pending]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -173,6 +193,7 @@ export function MessageItem({
         {m.text && (
           <div className="grad max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md px-4 py-2.5 text-[15px] leading-relaxed text-white shadow-sm">
             {m.mode === "image" && <span className="mr-1.5 rounded bg-white/20 px-1.5 py-px text-[11px]">生图</span>}
+            {m.mode === "video" && <span className="mr-1.5 rounded bg-white/20 px-1.5 py-px text-[11px]">视频</span>}
             {m.text}
           </div>
         )}
@@ -208,7 +229,13 @@ export function MessageItem({
           </div>
         )}
 
-        {m.mode === "image" ? (
+        {m.mode === "video" ? (
+          m.pending ? (
+            <VideoPending m={m} />
+          ) : m.video ? (
+            <VideoResultView m={m} isLast={isLast} justDone={justDone} onRegen={onRegenVideo} rinneOn={rinneOn} />
+          ) : null
+        ) : m.mode === "image" ? (
           m.pending ? (
             <RinneInline mood="imaging" testId="imaging-scene">
               <div className="w-full space-y-2">
@@ -223,7 +250,7 @@ export function MessageItem({
           ) : m.images?.length ? (
             <>
               {/* 结果图直接放在消息里占满宽度（以前塞在全身舞台左边的窄栏里，图被挤小） */}
-              <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} />
+              <ImageGrid urls={m.images} onEdit={onEditImage} onRegen={onRegenImage} onAnimate={onAnimateImage} />
               {m.text && <p className="mt-2 text-[13px] leading-relaxed text-muted">{m.text}</p>}
               {justDone && isLast && rinneOn && (
                 <div className="mt-2" data-testid="image-done-scene">
@@ -279,7 +306,12 @@ export function MessageItem({
         {m.error &&
           (() => {
             const card = (
-              <div className="w-full rounded-2xl border border-bad/30 bg-bad/5 p-3" data-testid="error-card">
+              <div className="w-full rounded-2xl border border-bad/30 bg-bad/5 p-3" data-testid="error-card" data-kind={m.error.kind}>
+                {m.mode === "video" && (
+                  <p className="mb-1.5 text-[13px] font-medium text-ink/90" data-testid="video-error-line" data-kind={m.error.kind}>
+                    {rinneLine(outfit, videoErrorScene(m.error.kind))}
+                  </p>
+                )}
                 <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-bad">
                   <TriangleAlert size={15} /> {m.error.title}
                 </div>
@@ -290,11 +322,23 @@ export function MessageItem({
                       {C.errors.fix}
                     </Link>
                   )}
-                  {isLast && (onRegenerate || onRegenImage) && (
-                    <button className="btn-ghost btn-sm" onClick={m.mode === "image" ? onRegenImage : onRegenerate}>
-                      <RefreshCw size={13} /> 重试
-                    </button>
+                  {m.error.fix === "video" && (
+                    <Link href="/settings#video" className="btn-ghost btn-sm">
+                      去视频服务设置
+                    </Link>
                   )}
+                  {m.mode === "video"
+                    ? onRegenVideo && (
+                        <button className="btn-ghost btn-sm" onClick={onRegenVideo}>
+                          <RefreshCw size={13} /> 重试
+                        </button>
+                      )
+                    : isLast &&
+                      (onRegenerate || onRegenImage) && (
+                        <button className="btn-ghost btn-sm" onClick={m.mode === "image" ? onRegenImage : onRegenerate}>
+                          <RefreshCw size={13} /> 重试
+                        </button>
+                      )}
                 </div>
               </div>
             );
@@ -315,7 +359,7 @@ export function MessageItem({
           <div className="mt-2">
             <Coach onOk={() => onFirstErrorSeen?.()}>
               {/* 以前直接显示模板，界面上会露出「{name}」；没有「去修复」按钮时也不该让人去点它 */}
-              {m.error.fix === "channels" ? fill(C.errors.firstErrorTip, { name: callName }) : C.errors.firstErrorTipRetry}
+              {m.error.fix === "channels" ? fill(C.errors.firstErrorTip, { name: callName }) : m.mode === "video" ? "原因已经写在上面。配额用完可以换智谱 CogVideoX-Flash，超时可以把时长调短再试。" : C.errors.firstErrorTipRetry}
             </Coach>
           </div>
         )}
@@ -327,7 +371,7 @@ export function MessageItem({
                 <Copy size={14} />
               </button>
             )}
-            {isLast && onRegenerate && m.mode !== "image" && (
+            {isLast && onRegenerate && m.mode !== "image" && m.mode !== "video" && (
               <button className="rounded-lg p-1.5 text-muted hover:bg-hover hover:text-ink" title="重新生成" onClick={onRegenerate}>
                 <RefreshCw size={14} />
               </button>

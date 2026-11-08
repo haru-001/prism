@@ -1,4 +1,4 @@
-import { fetchRemoteImage, readBlob, readKvFile } from "@/lib/server/files";
+import { fetchRemoteImage, openRemoteVideo, readBlob, readKvFile } from "@/lib/server/files";
 import { isAuthed } from "@/lib/server/auth";
 import { verifyImgSig } from "@/lib/server/imgurl";
 import { withDb } from "@/lib/server/dbguard";
@@ -13,6 +13,37 @@ const SAFE = {
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
 };
+
+/** 视频响应：只允许播放本身（直接在新标签页打开时浏览器会生成一个播放页） */
+const SAFE_VIDEO = {
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+};
+
+/**
+ * 按 Range 请求切一段（视频拖动进度条、Safari 播放视频都要求服务端支持 206）。
+ * 只支持单段 bytes=a-b / a- / -n；不合法的 Range 返回 416。
+ */
+function ranged(req: Request, buf: Uint8Array, type: string, headers: Record<string, string>): Response {
+  const size = buf.byteLength;
+  const h = { ...headers, "Content-Type": type, "Accept-Ranges": "bytes" };
+  const r = req.headers.get("range");
+  const m = r ? /^bytes=(\d*)-(\d*)$/.exec(r.trim()) : null;
+  if (!r || !m || (!m[1] && !m[2])) return new Response(buf as BodyInit, { headers: { ...h, "Content-Length": String(size) } });
+  let start: number, end: number;
+  if (!m[1]) {
+    start = Math.max(0, size - Number(m[2]));
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return new Response(null, { status: 416, headers: { ...h, "Content-Range": `bytes */${size}` } });
+  return new Response(buf.subarray(start, end + 1) as BodyInit, {
+    status: 206,
+    headers: { ...h, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
+  });
+}
 
 function fail(status: number, text: string) {
   return new Response(text, { status, headers: { "Cache-Control": "no-store", ...SAFE } });
@@ -38,7 +69,28 @@ async function GETHandler(req: Request, ctx: { params: Promise<{ path: string[] 
 
   const w = Number(sp.get("w"));
   const width = WIDTHS.has(w) ? w : 0;
-  const kind = path[0] === "ext" ? "ext" : path[0] === "b" || path[0] === "bp" ? "blob" : "db";
+  const kind = path[0] === "ext" ? "ext" : path[0] === "vext" ? "vext" : path[0] === "b" || path[0] === "bp" ? "blob" : "db";
+
+  // 没能转存的视频：经本站转发服务商的原链接（只认视频服务域名），Range 原样转给对方
+  if (kind === "vext") {
+    const u = sp.get("u") || "";
+    try {
+      const up = await openRemoteVideo(u, req.headers.get("range"));
+      if (!up.ok && up.status !== 206) {
+        await up.body?.cancel().catch(() => {});
+        return fail(up.status === 404 || up.status === 403 ? 410 : 502, "视频链接已失效");
+      }
+      const h: Record<string, string> = { "Cache-Control": "private, max-age=3600", ...SAFE_VIDEO };
+      for (const k of ["content-type", "content-length", "content-range", "accept-ranges"]) {
+        const v = up.headers.get(k);
+        if (v) h[k] = v;
+      }
+      if (!/^video\//.test(h["content-type"] || "")) h["content-type"] = "video/mp4";
+      return new Response(up.body, { status: up.status, headers: h });
+    } catch (e) {
+      return fail(502, `视频转发失败：${(e as Error)?.message || e}`);
+    }
+  }
   // 外链的内容不归我们管，只缓存 7 天；站内图片内容永远不变，缓存一年
   const maxAge = kind === "ext" ? 7 * 86400 : 31536000;
   const cache = `${signed ? "public" : "private"}, max-age=${maxAge}, immutable`;
@@ -67,6 +119,12 @@ async function GETHandler(req: Request, ctx: { params: Promise<{ path: string[] 
     if (!f) return fail(404, "Not found");
     type = f.mime;
     body = new Uint8Array(f.data);
+  }
+
+  // 视频：支持 Range（拖动进度条、Safari 播放都需要）
+  if (type.startsWith("video/")) {
+    const buf = body instanceof ReadableStream ? new Uint8Array(await new Response(body).arrayBuffer()) : (body as Uint8Array);
+    return ranged(req, buf, type, { ...headers, ...SAFE_VIDEO });
   }
 
   if (width) {

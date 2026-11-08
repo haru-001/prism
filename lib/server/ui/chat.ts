@@ -22,7 +22,7 @@ function toInternal(msgs: ChatMsg[]): IMessage[] {
   const out: IMessage[] = [];
   for (const m of msgs) {
     // alt：并排对比里没被选用的回答，不进入后续上下文
-    if (m.role === "notice" || m.mode === "image" || m.error || m.pending || m.alt) continue;
+    if (m.role === "notice" || m.mode === "image" || m.mode === "video" || m.error || m.pending || m.alt) continue;
     const parts: IPart[] = [];
     for (const url of m.images || []) parts.push({ type: "image", url });
     if (m.text) parts.push({ type: "text", text: m.text });

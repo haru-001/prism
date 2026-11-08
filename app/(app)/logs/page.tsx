@@ -19,6 +19,7 @@ import { RinnePageHead } from "@/components/rinne/RinnePageHead";
 const SOURCE: Record<LogEntry["source"], string> = {
   ui: "聊天页",
   "ui-image": "聊天页生图",
+  "ui-video": "聊天页视频",
   openai: "OpenAI 接口",
   claude: "Claude 接口",
   gemini: "Gemini 接口",

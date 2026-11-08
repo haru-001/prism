@@ -7,7 +7,7 @@ import { q, T } from "./mysql";
 import type { RowDataPacket } from "mysql2/promise";
 import { lookup } from "node:dns/promises";
 import net from "node:net";
-import { BLOB_PUBLIC_HOST, FILES, localImageUrl, verifyImgSig } from "./imgurl";
+import { BLOB_PUBLIC_HOST, FILES, localImageUrl, localVideoUrl, verifyImgSig } from "./imgurl";
 
 const EXT: Record<string, string> = {
   "image/png": "png",
@@ -15,6 +15,8 @@ const EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
   "image/avif": "avif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
 };
 
 /**
@@ -85,7 +87,7 @@ const SHRINK_FROM = 200 * 1024;
  * 还超过 DB_IMAGE_MAX_KB 就逐步缩小尺寸。GIF（可能是动图）原样保存。压缩失败时原样保存。
  */
 export async function shrinkForDb(buf: Buffer, mime: string): Promise<{ buf: Buffer; mime: string }> {
-  if (buf.length <= SHRINK_FROM || mime === "image/gif" || !EXT[mime]) return { buf, mime };
+  if (buf.length <= SHRINK_FROM || mime === "image/gif" || !EXT[mime] || !mime.startsWith("image/")) return { buf, mime };
   try {
     const sharp = (await import("sharp")).default;
     const max = env.imageMaxKB * 1024;
@@ -135,7 +137,7 @@ export async function evictOldFiles() {
 
 /** 站内图片地址 /api/files/{id}.{ext} 里的 id；Blob、外链代理和外链返回 null */
 export function localFileId(url: string): string | null {
-  if (!url.startsWith(FILES) || /^\/api\/files\/(b|bp|ext)([/?]|$)/.test(url)) return null;
+  if (!url.startsWith(FILES) || /^\/api\/files\/(b|bp|ext|vext)([/?]|$)/.test(url)) return null;
   return url.slice(FILES.length).split(/[.?]/)[0] || null;
 }
 
@@ -476,4 +478,154 @@ export async function persistRemoteImage(url: string): Promise<string> {
     }
   }
   return localImageUrl(url);
+}
+
+
+// ===== 视频 =====
+
+/**
+ * 视频转存上限：接了 Blob 时 20MB；存 MySQL 时 15MB（prism_files.data 是 MEDIUMBLOB，单行最多 16MB）。
+ * 几秒钟的 480p/720p 视频一般 1–5MB，正常用不会碰到。
+ */
+export function videoMaxBytes() {
+  return env.blobToken ? 20 * 1024 * 1024 : 15 * 1024 * 1024;
+}
+
+/**
+ * 视频服务的结果只允许从这几类域名下载 / 转发：
+ * - *.hf.space（Hugging Face Space 的 Gradio 文件地址）
+ * - huggingface.co（及其 CDN 子域）
+ * - *.bigmodel.cn / *.zhipuai.cn（智谱生成结果和封面）
+ * 测试时 PRISM_TEST_VIDEO_HOSTS 可以再放行几个 host:port（逗号分隔，线上不要设）。
+ */
+export function videoHostAllowed(u: URL): boolean {
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const h = u.hostname.toLowerCase();
+  const test = (process.env.PRISM_TEST_VIDEO_HOSTS || "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+  if (test.includes(u.host.toLowerCase())) return true;
+  if (u.protocol !== "https:") return false;
+  return (
+    /^[a-z0-9-]+\.hf\.space$/.test(h) ||
+    h === "huggingface.co" ||
+    h.endsWith(".huggingface.co") ||
+    h.endsWith(".hf.co") ||
+    h === "bigmodel.cn" ||
+    h.endsWith(".bigmodel.cn") ||
+    h.endsWith(".zhipuai.cn")
+  );
+}
+
+function sniffVideo(b: Buffer): string | null {
+  if (b.length < 12) return null;
+  if (b.slice(4, 8).toString() === "ftyp") return "video/mp4";
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
+  return null;
+}
+
+/** 打开一个外部地址（只允许视频服务域名；拦内网、防 DNS 重绑定，重定向每一跳都检查）。返回未读的响应 */
+async function openAllowed(url: string, headers: Record<string, string>, timeoutMs: number): Promise<Response> {
+  let cur = url;
+  for (let hop = 0; hop < 4; hop++) {
+    let u: URL;
+    try {
+      u = new URL(cur);
+    } catch {
+      throw new Error("视频地址无效");
+    }
+    if (u.username || u.password || !videoHostAllowed(u)) throw new Error("不允许访问这个地址");
+    let res: Response;
+    if (privateAllowed(u)) {
+      res = await fetch(u, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers });
+    } else {
+      await resolvePublic(u.hostname);
+      const { fetch: ufetch } = await import("undici");
+      res = (await ufetch(u, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers, dispatcher: await safeDispatcher() })) as unknown as Response;
+    }
+    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+      await res.body?.cancel().catch(() => {});
+      cur = new URL(res.headers.get("location")!, u).toString();
+      continue;
+    }
+    return res;
+  }
+  throw new Error("视频地址重定向次数太多");
+}
+
+/** 下载视频（或封面图）：只认视频服务域名，最大 max 字节，60 秒超时 */
+export async function fetchRemoteVideo(url: string, max = videoMaxBytes()): Promise<{ mime: string; data: Buffer }> {
+  const res = await openAllowed(url, { accept: "video/*,*/*;q=0.5" }, 60000);
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`下载视频失败：${res.status}`);
+  }
+  const len = Number(res.headers.get("content-length") || 0);
+  if (len > max) {
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error("视频太大"), { tooBig: true });
+  }
+  let data: Buffer;
+  try {
+    data = await readCapped(res, max);
+  } catch (e) {
+    if (/太大/.test(String((e as Error).message))) throw Object.assign(new Error("视频太大"), { tooBig: true });
+    throw e;
+  }
+  const real = sniffVideo(data);
+  if (!real) throw new Error("链接返回的不是视频");
+  return { mime: real, data };
+}
+
+/** 下载视频服务给的封面图（同样只认视频服务域名） */
+export async function fetchRemotePoster(url: string): Promise<{ mime: string; data: Buffer }> {
+  const res = await openAllowed(url, { accept: "image/*" }, 20000);
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`下载封面失败：${res.status}`);
+  }
+  const data = await readCapped(res, 5 * 1024 * 1024);
+  const mime = sniffImage(data);
+  if (!mime) throw new Error("封面不是图片");
+  return { mime, data };
+}
+
+/**
+ * 转存视频：成功返回本站地址；太大或下载失败时退回经本站转发的原链接（temp=true，原链接过期后就打不开了）。
+ * 下载失败重试一次。
+ */
+export async function persistRemoteVideo(url: string): Promise<{ url: string; temp: boolean; reason?: string }> {
+  let reason = "";
+  for (let i = 0; i < 2; i++) {
+    try {
+      const f = await fetchRemoteVideo(url);
+      return { url: await saveFile(f.data, f.mime, "videos"), temp: false };
+    } catch (e) {
+      reason = (e as Error).message;
+      if ((e as { tooBig?: boolean }).tooBig) break;
+    }
+  }
+  console.error("[prism] 转存视频失败，改用转发地址", reason);
+  return { url: localVideoUrl(url), temp: true, reason };
+}
+
+export async function persistRemotePoster(url: string): Promise<string | undefined> {
+  try {
+    const f = await fetchRemotePoster(url);
+    return await saveFile(f.data, f.mime);
+  } catch (e) {
+    console.error("[prism] 转存视频封面失败", (e as Error).message);
+    return undefined;
+  }
+}
+
+/**
+ * 转发外部视频（/api/files/vext?u=...）：浏览器只访问本站。把 Range 原样带给对方，边收边发，不整段读进内存。
+ * 只允许视频服务域名；最多转发 60MB。
+ */
+export async function openRemoteVideo(url: string, range?: string | null): Promise<Response> {
+  const headers: Record<string, string> = { accept: "video/*,*/*;q=0.5" };
+  if (range && /^bytes=\d*-\d*$/.test(range)) headers.range = range;
+  return openAllowed(url, headers, 60000);
 }
