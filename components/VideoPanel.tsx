@@ -32,7 +32,7 @@ function ProviderCard({ p, cfg, onCfg }: { p: (typeof VIDEO_PROVIDERS)[number]; 
       onCfg(r.config);
       setKey("");
       setResult(null);
-      toast("Key 已加密保存，我顺手测一下连接。", "ok");
+      // 保存后顺手测一次连接，结果由测试那一步提示
       await test();
     } catch (e) {
       toast((e as Error).message, "err");

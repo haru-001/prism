@@ -142,9 +142,10 @@ export function videoErrorScene(kind?: string): VideoScene {
   return "videoFail";
 }
 
-export function rinneLine(o: OutfitId, scene: Scene, d: Date = new Date()): string {
+/** offset：同一场景换另一句（比如 toast 和消息里的台词同时出现时，别说两遍同一句） */
+export function rinneLine(o: OutfitId, scene: Scene, d: Date = new Date(), offset = 0): string {
   const table = (scene === "chat" || scene === "login" ? LINES : VIDEO_LINES) as Record<OutfitId, Record<Scene, string[]>>;
   const list = table[o]?.[scene] ?? table.suit[scene];
   const day = Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000);
-  return list[day % list.length];
+  return list[(day + offset) % list.length];
 }

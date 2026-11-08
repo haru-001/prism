@@ -16,7 +16,7 @@ const MOTIONS: { v: RinneMotion; t: string }[] = [
 /**
  * 设置里的「形象 / 衣柜」：九套服装，选择存在设置里。
  * 悬停（或键盘聚焦）缩略图时左边先预览那一套，移开就回到当前这套；点下去才真正换上。
- * 打开「自动换装」后按时间和季节自动挑（深夜居家、周末运动或便装、周五周六晚上礼服……），选中的那套作为工作日白天的默认。
+ * 打开「自动换装」后按时段和季节圈出几套，每次访问随机挑一套（同一次访问内不变，尽量不和上次重复）；选中的那套会进工作日白天的候选。
  */
 export function Wardrobe() {
   const { outfit, chosen, motion, show, auto, setPrefs } = useRinne();
@@ -91,7 +91,7 @@ export function Wardrobe() {
             <Toggle on={auto} onChange={(v) => setPrefs({ auto: v })} />
             <span>
               自动换装
-              <span className="block text-xs text-muted">深夜换居家服，周末换运动装或便装，周五、周六晚上换礼服，冬天换针织；工作日白天穿上面选中的那套。</span>
+              <span className="block text-xs text-muted">按时段和季节挑几套合适的，每次打开随机换一套（尽量不和上次重复）：深夜居家，周末运动或便装，周五、周六晚上礼服或旗袍；工作日白天在选中的那套、职业装和当季服装里换。</span>
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">

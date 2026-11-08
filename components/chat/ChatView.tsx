@@ -36,6 +36,11 @@ function firstModel(catalog: ModelGroup[], wantImage: boolean, prefer?: string):
   return undefined;
 }
 
+/** 任务标签「HF · owner/name」「智谱 · cogvideox-flash」去掉前缀，放在消息的线路位置（标题已经写了是哪家） */
+function shortLabel(l?: string) {
+  return l ? l.replace(/^(HF|智谱) · /, "") : undefined;
+}
+
 function Num({ n }: { n: number }) {
   return <span className="num shadow">{n}</span>;
 }
@@ -407,7 +412,7 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
   /** 把服务端的任务状态换算成消息要改的字段 */
   function taskPatch(t: VideoTaskView): { state: "pending" | "done" | "failed"; p: Partial<ChatMsg> } {
     if (t.status === "done" && t.result) {
-      return { state: "done", p: { pending: false, task: undefined, video: t.result, latencyMs: t.latencyMs, channel: t.label, error: undefined } };
+      return { state: "done", p: { pending: false, task: undefined, video: t.result, latencyMs: t.latencyMs, channel: shortLabel(t.label), error: undefined } };
     }
     if (t.status === "failed") {
       const e = t.error || { kind: "unknown", title: "生成失败", message: "没有说明原因。" };
@@ -426,7 +431,6 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
     const p: Partial<ChatMsg> = {
       task: { id: t.id, startedAt: t.startedAt, eta: t.eta, status: t.status, phase: t.phase, queue: t.queue, progress: t.progress, label: t.label },
     };
-    if (t.label) p.model = t.label;
     return { state: "pending", p };
   }
   /** 把服务端的任务状态写进消息 */
@@ -461,8 +465,8 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
         return;
       }
       polls.delete(aid);
-      if (tp.state === "done") toast(rinneLine(rinneOutfit, "videoDone"), "ok");
-      else toast(rinneLine(rinneOutfit, videoErrorScene(t?.error?.kind)), "err");
+      if (tp.state === "done") toast(rinneLine(rinneOutfit, "videoDone", new Date(), 1), "ok");
+      else toast(rinneLine(rinneOutfit, videoErrorScene(t?.error?.kind), new Date(), 1), "err");
       void save(
         msgsRef.current.map((m) => (m.id === aid ? { ...m, ...tp.p } : m)),
         conv.id,
@@ -510,7 +514,7 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
         conv.t,
       );
       if (state === "pending") pollVideo(aid, r.task.id, conv);
-      else if (state === "failed") toast(rinneLine(rinneOutfit, videoErrorScene(r.task.error?.kind)), "err");
+      else if (state === "failed") toast(rinneLine(rinneOutfit, videoErrorScene(r.task.error?.kind), new Date(), 1), "err");
     } catch (e) {
       patch(aid, { pending: false, task: undefined, error: { title: "提交失败", message: (e as Error).message, kind: "bad" } });
       setTimeout(() => void save(msgsRef.current, conv.id, conv.t), 0);

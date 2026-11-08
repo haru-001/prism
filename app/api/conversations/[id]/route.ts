@@ -27,13 +27,13 @@ async function PUTHandler(req: Request, ctx: Ctx) {
   const c: Conversation = {
     id,
     title: (b.title || "新对话").slice(0, 80),
-    hasImage: b.messages.some((m) => m.mode === "image"),
+    hasImage: b.messages.some((m) => m.mode === "image" || m.mode === "video"),
     model: b.model,
     system: b.system,
     temperature: b.temperature,
-    // 不保存进行中的消息和 base64 大图
+    // 不保存进行中的消息和 base64 大图；生成中的视频例外（带着任务 id，刷新后接着查进度，完成时服务端会把结果写回来）
     messages: b.messages
-      .filter((m) => !m.pending)
+      .filter((m) => !m.pending || (m.mode === "video" && typeof m.task?.id === "string" && /^[A-Za-z0-9_-]{6,40}$/.test(m.task.id)))
       .map((m) => ({ ...m, images: m.images?.filter((u) => !u.startsWith("data:")) })),
     createdAt: b.createdAt || now,
     updatedAt: now,

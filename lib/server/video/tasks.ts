@@ -99,6 +99,17 @@ function vErr(kind: VideoErrorKind, title: string, message: string): VideoError 
   return { kind, title, message };
 }
 
+/** ZeroGPU 给的「Try again in 13:05:21」换成「13 小时 5 分钟」 */
+function humanWait(v?: string) {
+  if (!v) return undefined;
+  const m = /^(?:(\d+):)?(\d+):(\d+)$/.exec(v.trim());
+  if (!m) return v.trim();
+  const h = Number(m[1] || 0), mi = Number(m[2]), se = Number(m[3]);
+  if (h) return `${h} 小时${mi ? ` ${mi} 分钟` : ""}`;
+  if (mi) return `${mi} 分钟`;
+  return `${se} 秒`;
+}
+
 export function classify(e: unknown, provider: VideoProvider): VideoError {
   const msg = String((e as Error)?.message || e || "");
   const raw = msg.length > 240 ? msg.slice(0, 240) + "…" : msg;
@@ -119,7 +130,7 @@ export function classify(e: unknown, provider: VideoProvider): VideoError {
   }
   if (provider === "hf") {
     if (/zero ?gpu|gpu quota|exceeded|quota/i.test(msg)) {
-      const again = /try again in ([0-9:]+|[^.\n]+?)(?:[.\n]|$)/i.exec(msg)?.[1];
+      const again = humanWait(/try again in ([0-9:]+|[^.\n]+?)(?:[.\n]|$)/i.exec(msg)?.[1]);
       return vErr(
         "quota",
         "今天的免费 GPU 额度用完了",
@@ -441,7 +452,7 @@ async function finish(t: TaskRec) {
     await patchConversationMessage(t.convId, t.msgId, (m) => {
       if (!m.pending || m.task?.id !== t.id) return null;
       return t.status === "done"
-        ? { ...m, pending: false, task: undefined, video: t.result, latencyMs: t.latencyMs, channel: t.label }
+        ? { ...m, pending: false, task: undefined, video: t.result, latencyMs: t.latencyMs, channel: t.space || ZHIPU_MODEL }
         : { ...m, pending: false, task: undefined, error: { title: t.error!.title, message: t.error!.message, kind: t.error!.kind, fix: errFix(t.error!.kind) }, latencyMs: t.latencyMs };
     }).catch((e) => console.error("[prism] 视频结果写回对话失败", e));
   }

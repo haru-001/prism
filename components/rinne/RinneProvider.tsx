@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from "react";
-import { DEFAULT_PREFS, RINNE_COOKIE, autoOutfit, prefsCookie, type OutfitId, type RinneMotion, type RinnePrefs } from "@/lib/rinne";
+import { DEFAULT_PREFS, RINNE_COOKIE, autoPool, isOutfit, prefsCookie, type OutfitId, type RinneMotion, type RinnePrefs } from "@/lib/rinne";
 
 interface RinneCtx extends RinnePrefs {
   /** 当前是否要动效（已经算上系统的「减少动态效果」） */
@@ -13,7 +13,32 @@ interface RinneCtx extends RinnePrefs {
 
 const Ctx = createContext<RinneCtx>({ ...DEFAULT_PREFS, chosen: DEFAULT_PREFS.outfit, animate: true, setPrefs: () => {} });
 
-/** 自动换装：挂载后按本地时间算，之后每 5 分钟看一次（跨过整点时换装，带淡入淡出） */
+const AUTO_SESSION = "prism_rinne_auto"; // 本次访问：{ slot, outfit }
+const AUTO_LAST = "prism_rinne_auto_last"; // 上次访问穿的那套
+
+/** 本次访问在这个时段穿哪套：同一时段内不变；新访问或换了时段就从池子里重新随机挑（尽量不和上次一样） */
+function pickAuto(base: OutfitId): OutfitId {
+  const { slot, pool } = autoPool(base);
+  try {
+    const s = JSON.parse(sessionStorage.getItem(AUTO_SESSION) || "null") as { slot?: string; outfit?: string; base?: string } | null;
+    if (s && s.slot === slot && s.base === base && isOutfit(s.outfit) && pool.includes(s.outfit)) return s.outfit;
+  } catch {
+    /* 隐私模式等读不到存储：每次都重新挑 */
+  }
+  let last: string | null = null;
+  try {
+    last = localStorage.getItem(AUTO_LAST);
+  } catch {}
+  const cand = pool.length > 1 ? pool.filter((o) => o !== last) : pool;
+  const outfit = cand[Math.floor(Math.random() * cand.length)] ?? base;
+  try {
+    sessionStorage.setItem(AUTO_SESSION, JSON.stringify({ slot, outfit, base }));
+    localStorage.setItem(AUTO_LAST, outfit);
+  } catch {}
+  return outfit;
+}
+
+/** 自动换装：挂载后挑一套，之后每 5 分钟看一次是否跨了时段（跨了才换，带淡入淡出） */
 function useAutoOutfit(on: boolean, base: OutfitId) {
   const [cur, setCur] = useState<OutfitId | null>(null);
   useEffect(() => {
@@ -21,7 +46,7 @@ function useAutoOutfit(on: boolean, base: OutfitId) {
       setCur(null);
       return;
     }
-    const tick = () => setCur(autoOutfit(base));
+    const tick = () => setCur(pickAuto(base));
     tick();
     const t = setInterval(tick, 5 * 60 * 1000);
     return () => clearInterval(t);
