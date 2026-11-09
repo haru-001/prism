@@ -16,6 +16,7 @@ import dynamic from "next/dynamic";
 const PresetManager = dynamic(() => import("@/components/PresetManager"), { ssr: false, loading: () => <div className="shimmer h-16 rounded-xl" /> });
 const BackupPanel = dynamic(() => import("@/components/BackupPanel"), { ssr: false, loading: () => <div className="shimmer h-24 rounded-xl" /> });
 const Wardrobe = dynamic(() => import("@/components/rinne/Wardrobe").then((m) => m.Wardrobe), { ssr: false, loading: () => <div className="shimmer h-64 rounded-xl" /> });
+const VideoPanel = dynamic(() => import("@/components/VideoPanel"), { ssr: false, loading: () => <div className="shimmer h-40 rounded-xl" /> });
 const DbPanel = dynamic(() => import("@/components/DbPanel").then((m) => m.DbPanel), { ssr: false, loading: () => <div className="shimmer h-24 rounded-xl" /> });
 
 function Section({ title, sub, children, id }: { title: string; sub?: string; children: React.ReactNode; id?: string }) {
@@ -167,6 +168,10 @@ export default function SettingsPage() {
 
         <Section id="presets" title="提示词预设" sub="常用的系统提示词存成预设，新建对话时在空白页或「系统提示词」里点一下就能套用">
           <PresetManager />
+        </Section>
+
+        <Section id="video" title="视频服务" sub="Hugging Face（MCP 调用 ZeroGPU Space）和智谱 CogVideoX-Flash，都有免费额度。在这里添加 Key、测试连接、选默认服务和 Space">
+          <VideoPanel />
         </Section>
 
         <Section title="主题">

@@ -65,6 +65,8 @@ export interface IUsage {
 export type IChatEvent =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
+  /** 模型在对话里直接产出的图片（Gemini inlineData、OpenRouter 的 images、内容数组里的 image_url 等） */
+  | { type: "image"; data?: string; mime?: string; url?: string }
   | { type: "usage"; usage: IUsage }
   | { type: "finish"; reason: string };
 
@@ -89,7 +91,9 @@ export interface MsgError {
   title: string;
   message: string;
   status?: number;
-  fix?: "channels" | "settings";
+  fix?: "channels" | "settings" | "video";
+  /** 视频失败的类型：配额用完 / 超时 / Key 无效…（棱音按它换台词） */
+  kind?: string;
 }
 
 export interface ChatMsg {
@@ -97,7 +101,7 @@ export interface ChatMsg {
   role: "user" | "assistant" | "notice";
   text: string;
   images?: string[];
-  mode?: "chat" | "image";
+  mode?: "chat" | "image" | "video";
   model?: string;
   channel?: string;
   reasoning?: string;
@@ -105,6 +109,19 @@ export interface ChatMsg {
   latencyMs?: number;
   error?: MsgError;
   imageMeta?: { prompt: string; size?: string; n?: number; quality?: string; refs?: string[] };
+  /** 视频：提交时的参数；task 是生成中的任务（刷新页面后据此接着查进度）；video 是结果 */
+  videoMeta?: {
+    prompt: string;
+    mode: import("./video").VideoMode;
+    provider: import("./video").VideoProvider;
+    /** HF 用的 Space（预设 id 或 custom:owner/name） */
+    space?: string;
+    duration?: number;
+    aspect?: import("./video").VideoAspect;
+    images?: string[];
+  };
+  task?: { id: string; startedAt: number; eta: number; status?: string; phase?: string; queue?: number; progress?: number; label?: string };
+  video?: { url: string; poster?: string; temp?: boolean };
   pending?: boolean;
   /** 并排对比：同一组回答的组号；alt=true 的回答不进入后续上下文 */
   group?: string;
@@ -130,7 +147,11 @@ export interface Conversation extends ConversationMeta {
 // ===== 图库 / 日志 / 设置 =====
 export interface GalleryItem {
   id: string;
+  /** 不写就是图片 */
+  kind?: "image" | "video";
   url: string;
+  /** 视频封面 */
+  poster?: string;
   prompt: string;
   model: string;
   size?: string;
@@ -141,7 +162,7 @@ export interface GalleryItem {
 export interface LogEntry {
   id: string;
   at: number;
-  source: "ui" | "openai" | "claude" | "gemini" | "image" | "ui-image";
+  source: "ui" | "openai" | "claude" | "gemini" | "image" | "ui-image" | "ui-video";
   model: string;
   upstreamModel?: string;
   channel?: string;

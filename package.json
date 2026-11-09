@@ -6,11 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:mock": "node tests/mock.mjs",
-    "test:api": "node tests/api-test.mjs",
-    "test:mysql": "node tests/mysql-test.mjs",
-    "migrate": "node scripts/migrate-to-mysql.mjs",
-    "test:features": "node tests/features-test.mjs"
+    "migrate": "node scripts/migrate-to-mysql.mjs"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.2",
@@ -25,7 +21,8 @@
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "undici": "^6.29.1"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

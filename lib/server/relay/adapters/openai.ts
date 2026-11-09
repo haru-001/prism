@@ -82,6 +82,44 @@ export function mapOpenAIFinish(r?: string | null) {
   return r === "stop" ? "stop" : r;
 }
 
+/**
+ * 从 OpenAI 兼容格式里取图片：
+ * - OpenRouter / 不少中转：message.images / delta.images = [{ type: "image_url", image_url: { url } }]
+ * - 内容数组：[{ type: "text" }, { type: "image_url" | "output_image" | "image", image_url | url | b64_json }]
+ */
+function imageOf(p: any): IChatEvent | null {
+  if (!p || typeof p !== "object") return null;
+  const url = typeof p.image_url === "string" ? p.image_url : p.image_url?.url || p.url;
+  const b64 = p.b64_json || p.image_base64 || (typeof p.data === "string" && p.data.length > 100 ? p.data : undefined);
+  if (b64) return { type: "image", data: b64, mime: p.mime_type || p.mimeType || "image/png" };
+  if (typeof url === "string" && url) {
+    const m = /^data:([^;,]+)(?:;base64)?,(.*)$/s.exec(url);
+    return m ? { type: "image", data: m[2], mime: m[1] } : { type: "image", url };
+  }
+  return null;
+}
+function* eventsOfContent(content: unknown, images: unknown): Generator<IChatEvent> {
+  if (typeof content === "string") {
+    if (content) yield { type: "text", text: content };
+  } else if (Array.isArray(content)) {
+    for (const p of content) {
+      if (typeof p === "string") yield { type: "text", text: p };
+      else if ((p?.type === "text" || p?.type === "output_text") && typeof p.text === "string") {
+        if (p.text) yield { type: "text", text: p.text };
+      } else {
+        const im = imageOf(p);
+        if (im) yield im;
+      }
+    }
+  }
+  if (Array.isArray(images)) {
+    for (const p of images) {
+      const im = imageOf(p);
+      if (im) yield im;
+    }
+  }
+}
+
 /** 解析 OpenAI 格式的流（也兼容上游忽略 stream 直接返回 JSON 的情况） */
 export async function* parseOpenAIResponse(res: Response): AsyncGenerator<IChatEvent> {
   const ct = res.headers.get("content-type") || "";
@@ -91,7 +129,7 @@ export async function* parseOpenAIResponse(res: Response): AsyncGenerator<IChatE
     const msg = j.choices?.[0]?.message || {};
     const reasoning = msg.reasoning_content || msg.reasoning;
     if (reasoning) yield { type: "reasoning", text: reasoning };
-    if (msg.content) yield { type: "text", text: msg.content };
+    yield* eventsOfContent(msg.content, msg.images);
     if (j.usage) yield { type: "usage", usage: { input: j.usage.prompt_tokens || 0, output: j.usage.completion_tokens || 0 } };
     yield { type: "finish", reason: mapOpenAIFinish(j.choices?.[0]?.finish_reason) };
     return;
@@ -115,7 +153,7 @@ export async function* parseOpenAISSE(body: ReadableStream<Uint8Array>): AsyncGe
     const d = c?.delta || {};
     const reasoning = d.reasoning_content ?? d.reasoning;
     if (typeof reasoning === "string" && reasoning) yield { type: "reasoning", text: reasoning };
-    if (typeof d.content === "string" && d.content) yield { type: "text", text: d.content };
+    yield* eventsOfContent(d.content, d.images);
     if (j.usage && (j.usage.prompt_tokens != null || j.usage.completion_tokens != null))
       yield { type: "usage", usage: { input: j.usage.prompt_tokens || 0, output: j.usage.completion_tokens || 0 } };
     if (c?.finish_reason && !finished) {

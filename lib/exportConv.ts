@@ -28,7 +28,7 @@ export function conversationToMarkdown(c: Conversation, origin = ""): string {
       continue;
     }
     if (m.role === "user") {
-      out.push(`## 你${m.mode === "image" ? "（生图）" : ""}`, "");
+      out.push(`## 你${m.mode === "image" ? "（生图）" : m.mode === "video" ? "（视频）" : ""}`, "");
     } else {
       const tag = m.group ? (m.alt ? "（并排回答）" : "（并排回答 · 已选用）") : "";
       const via = [m.model, m.channel].filter(Boolean).join(" · ");
@@ -37,6 +37,7 @@ export function conversationToMarkdown(c: Conversation, origin = ""): string {
     if (m.reasoning?.trim()) out.push("<details><summary>思考过程</summary>", "", m.reasoning.trim(), "", "</details>", "");
     if (m.text) out.push(m.text, "");
     for (const u of m.images || []) out.push(`![](${abs(u)})`, "");
+    if (m.video?.url) out.push(`[▶ 视频](${abs(m.video.url)})${m.video.temp ? "（服务商的临时链接，可能已失效）" : ""}`, "");
     if (m.error) out.push(`> 出错：${m.error.title}。${m.error.message}`, "");
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
@@ -47,7 +48,9 @@ export function conversationToJSON(c: Conversation): string {
     .filter((m) => !m.pending)
     .map((m) => {
       const o: Record<string, unknown> = { role: m.role, text: m.text, createdAt: m.createdAt };
-      if (m.mode === "image") o.mode = "image";
+      if (m.mode === "image" || m.mode === "video") o.mode = m.mode;
+      if (m.video) o.video = m.video;
+      if (m.videoMeta) o.videoMeta = m.videoMeta;
       if (m.images?.length) o.images = m.images;
       if (m.model) o.model = m.model;
       if (m.channel) o.channel = m.channel;

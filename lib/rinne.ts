@@ -185,8 +185,9 @@ export function figureSrc(o: OutfitId, m: Mood, size: StageSize, mobileH?: numbe
 const BIG_H: Partial<Record<StageSize, number>> = { lg: 500, md: 380 };
 
 /** 圆形头像（64 / 128）：界面里只用欢迎姿势的头像，其余状态不再单独出图（省体积） */
-export function avatarSrc(o: OutfitId, _m: Mood = "welcome") { // eslint-disable-line @typescript-eslint/no-unused-vars
-  const m: Mood = "welcome";
+export function avatarSrc(o: OutfitId, mood: Mood = "welcome", exact = false) {
+  // 一般场合头像只用欢迎姿势那一张；消息旁的状态头像（exact）才按状态取
+  const m: Mood = exact ? mood : "welcome";
   return { src: url(o, m, "-avatar", 4), srcSet: `${url(o, m, "-avatar", 4)} 1x, ${url(o, m, "-avatar-2x", 5)} 2x` };
 }
 
@@ -230,32 +231,43 @@ export function pageSrc(o: OutfitId, p: PageId) {
 }
 
 /**
- * 自动换装：按当地时间和季节挑一套，衣柜里选的那套作为工作日白天的默认。
- *  - 22:00–6:00 居家睡衣
- *  - 周末 6:00–9:00 运动套装
- *  - 周五、周六 19:00–22:00 晚会礼服
- *  - 周末白天：6–9 月清爽夏季，12–2 月冬日针织，其余秋日风衣
- *  - 工作日白天：12–2 月且选的是职业装时换冬日针织，否则就是衣柜里选的那套
- *  - 春节前后（1 月 20 日–2 月 20 日的周末）新中式
+ * 自动换装：先按当地时间和季节圈出「这个时段合适的几套」，每次访问（新开标签页/新会话）从里面随机挑一套，
+ * 并尽量避开上次访问穿的那套；同一次访问内、同一时段里不变，跨时段（比如到了 22 点）才换。
+ *  - 22:00–6:00：居家睡衣
+ *  - 周末 6:00–9:00：运动 / 居家
+ *  - 周五、周六 19:00–22:00：礼服 / 旗袍 / 风衣
+ *  - 周末白天：按季节，夏（6–9 月）夏装 / 运动，冬（12–2 月）针织 / 风衣，其余风衣 / 运动 / 夏装（5、10 月）
+ *  - 工作日白天：衣柜里选的那套 + 职业装 + 当季的几套
+ *  - 春节前后（1 月 20 日–2 月 20 日）白天加入新中式；2 月 14 日、5 月 20 日晚上加入婚纱
  */
-export function autoOutfit(base: OutfitId, d: Date = new Date()): OutfitId {
+export function autoPool(base: OutfitId, d: Date = new Date()): { slot: string; pool: OutfitId[] } {
   const h = d.getHours();
   const wd = d.getDay();
   const mon = d.getMonth() + 1;
   const day = d.getDate();
   const weekend = wd === 0 || wd === 6;
-  if (h >= 22 || h < 6) return "home";
-  if (weekend && h < 9) return "sport";
-  if ((wd === 5 || wd === 6) && h >= 19) return "gown";
+  const date = `${d.getFullYear()}-${mon}-${day}`;
   const winter = mon === 12 || mon <= 2;
-  if (weekend) {
-    const spring = (mon === 1 && day >= 20) || (mon === 2 && day <= 20);
-    if (spring) return "qipao";
-    if (mon >= 6 && mon <= 9) return "summer";
-    return winter ? "winter" : "trench";
+  const summer = mon >= 6 && mon <= 9;
+  const spring = (mon === 1 && day >= 20) || (mon === 2 && day <= 20);
+  const love = (mon === 2 && day === 14) || (mon === 5 && day === 20);
+  const uniq = (l: OutfitId[]) => Array.from(new Set(l));
+  if (h >= 22 || h < 6) return { slot: `${date}/night`, pool: ["home"] };
+  if (weekend && h < 9) return { slot: `${date}/morning`, pool: ["sport", "home"] };
+  if (h >= 19) {
+    const pool: OutfitId[] = wd === 5 || wd === 6 ? ["gown", "qipao", "trench"] : [base, winter ? "winter" : summer ? "summer" : "trench", "home"];
+    if (love) pool.push("bridal");
+    return { slot: `${date}/evening`, pool: uniq(pool) };
   }
-  if (winter && base === "suit") return "winter";
-  return base;
+  const season: OutfitId[] = summer ? ["summer", "sport"] : winter ? ["winter", "trench"] : mon === 5 || mon === 10 ? ["trench", "sport", "summer"] : ["trench", "sport"];
+  const pool: OutfitId[] = weekend ? season : [base, "suit", ...season];
+  if (spring) pool.push("qipao");
+  return { slot: `${date}/${weekend ? "weekend" : "day"}`, pool: uniq(pool) };
+}
+
+/** 只按规则取一套（不随机），给服务端首屏或测试用：返回池子里的第一套 */
+export function autoOutfit(base: OutfitId, d: Date = new Date()): OutfitId {
+  return autoPool(base, d).pool[0];
 }
 
 /** 存在 cookie 里的形象设置（登录页、引导页还没有设置可读时用），格式 outfit|motion|show|auto */

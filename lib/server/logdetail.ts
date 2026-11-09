@@ -116,8 +116,8 @@ export async function saveDetail(d: LogDetail) {
   const v = JSON.stringify(d);
   if (storageKind() === "mysql") {
     await q(`INSERT INTO ${T.logd} (id, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)`, [d.id, v]);
-    // 只留最新 500 条（和日志列表同样的修剪方式）
-    await q(
+    // 只留最新 500 条左右：和日志列表一样，大约每 16 次写入修剪一次，省掉每次请求一条 DELETE
+    if (Math.random() < 1 / 16) await q(
       `DELETE FROM ${T.logd} WHERE seq < (SELECT s FROM (SELECT seq s FROM ${T.logd} ORDER BY seq DESC LIMIT 1 OFFSET ${DETAIL_LIMIT - 1}) x)`,
     );
   } else {

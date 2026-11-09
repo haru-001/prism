@@ -423,61 +423,7 @@ npm run dev                  # http://localhost:3000
 
 ### 测试
 
-`tests/` 里有一个模拟上游和几套测试，不会请求任何真实的 AI 服务。下面用 MySQL 跑；不设 `DATABASE_URL` 就是用本地文件跑。
-
-```bash
-npm run build
-export DATABASE_URL='mysql://用户:密码@localhost:3306/prism_test?ssl-mode=REQUIRED'
-export DATABASE_CA_FILE=./ca.pem          # 本地 MySQL 不走 SSL 的话去掉这行和上面的 ssl-mode
-export PRISM_SECRET=test-secret-123
-node tests/db-reset.mjs                   # 清空测试库（会删掉 Prism 的 6 张表，别对线上库用）
-npx next start -p 3100 &
-npm run test:mock &                       # 模拟上游，端口 9100
-npm run test:api                          # 接口测试，116 项
-```
-
-新功能接口测试（用量、令牌限制、日志详情和重放、备份恢复、聊天增强），同样先清空测试库再重启服务：
-
-```bash
-npm run test:features                     # 119 项
-```
-
-界面测试用 Playwright（Python），需要先清空测试库再重启一次服务：
-
-```bash
-pip install playwright && python -m playwright install chromium
-python tests/ui-test.py      # 走一遍引导、所有页面和新功能界面，截图存在 tests/shots/
-```
-
-跑完界面测试后，可以再用同一个库开第二个实例（端口 3101），检查多实例时聊天页能不能拿到另一个实例刚加的预设：
-
-```bash
-npx next start -p 3101 &
-python tests/preset-multi-instance.py
-```
-
-MySQL 专项测试（登录失败计数、日志和日志详情只留 500 条、用量按天合并、自动建好 6 张表、图片压缩和总量清理、图库隐藏已清理的图），同样先清空测试库，并用 `DB_IMAGES_MAX_MB=2` 启动服务：
-
-```bash
-DB_IMAGES_MAX_MB=2 npx next start -p 3100 &
-node tests/mysql-test.mjs
-```
-
-迁移测试：对着旧版运行 `node tests/migrate-test.mjs snapshot` 记下数据，跑完迁移脚本后对着新版运行 `node tests/migrate-test.mjs verify` 逐项对比。
-
-国内访问和数据库功能的测试，同样先清空测试库，再带上两个只给测试用的环境变量启动服务（一个把公开 Blob 的读取指到模拟上游，一个只放行模拟上游这一个内网地址；线上不要设）：
-
-```bash
-PRISM_TEST_BLOB_ORIGIN=http://127.0.0.1:9100/blob PRISM_ALLOW_PRIVATE_IMAGE_FETCH=127.0.0.1:9100 npx next start -p 3100
-node tests/cn-db-test.mjs      # 签名地址和登录鉴权、旧链接改写、临时链接转存、外链转发防内网、休眠时三种格式的 503、容量统计和清理、80% 提醒
-python tests/cn-ui-test.py     # 浏览器拦下所有非本站请求逐页检查，再测容量面板、清理、快满提醒和休眠页（跑前同样先清空测试库、重启服务）
-```
-
-`cn-db-test.mjs` 会自己另外启动几个服务（端口 3102 到 3105）来模拟数据库关机、配置错误和容量快满，跑完自动关掉。
-
-速度测试：`tests/bench.mjs` 测接口耗时和每个请求的 SQL 条数，`tests/bench-ui.py` 用浏览器测首屏、切换对话、图库和日志页的时间，以及每页的 JS 体积。
-
----
+测试脚本和模拟上游只在开发仓库里，发布包不附带。
 
 ## 六、已知限制
 

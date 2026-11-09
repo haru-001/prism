@@ -7,7 +7,7 @@ import { q, T } from "./mysql";
 import type { RowDataPacket } from "mysql2/promise";
 import { lookup } from "node:dns/promises";
 import net from "node:net";
-import { BLOB_PUBLIC_HOST, FILES, localImageUrl, verifyImgSig } from "./imgurl";
+import { BLOB_PUBLIC_HOST, FILES, localImageUrl, localVideoUrl, verifyImgSig } from "./imgurl";
 
 const EXT: Record<string, string> = {
   "image/png": "png",
@@ -15,6 +15,8 @@ const EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
   "image/avif": "avif",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
 };
 
 /**
@@ -85,7 +87,7 @@ const SHRINK_FROM = 200 * 1024;
  * 还超过 DB_IMAGE_MAX_KB 就逐步缩小尺寸。GIF（可能是动图）原样保存。压缩失败时原样保存。
  */
 export async function shrinkForDb(buf: Buffer, mime: string): Promise<{ buf: Buffer; mime: string }> {
-  if (buf.length <= SHRINK_FROM || mime === "image/gif" || !EXT[mime]) return { buf, mime };
+  if (buf.length <= SHRINK_FROM || mime === "image/gif" || !EXT[mime] || !mime.startsWith("image/")) return { buf, mime };
   try {
     const sharp = (await import("sharp")).default;
     const max = env.imageMaxKB * 1024;
@@ -135,7 +137,7 @@ export async function evictOldFiles() {
 
 /** 站内图片地址 /api/files/{id}.{ext} 里的 id；Blob、外链代理和外链返回 null */
 export function localFileId(url: string): string | null {
-  if (!url.startsWith(FILES) || /^\/api\/files\/(b|bp|ext)([/?]|$)/.test(url)) return null;
+  if (!url.startsWith(FILES) || /^\/api\/files\/(b|bp|ext|vext)([/?]|$)/.test(url)) return null;
   return url.slice(FILES.length).split(/[.?]/)[0] || null;
 }
 
@@ -285,15 +287,45 @@ export async function readBlob(segs: string[]): Promise<{ mime: string; body: Re
 
 const REMOTE_MAX = 20 * 1024 * 1024;
 
-/** 内网和保留地址：外链代理不允许访问，防止被拿来探测内网 */
+/** 内网和保留地址：服务端下载外部图片时一律不允许访问，防止被拿来探测内网（SSRF） */
 function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224;
+    const [a, b, c] = ip.split(".").map(Number);
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b < 128) || // 运营商 NAT
+      (a === 169 && b === 254) || // 链路本地，含云厂商元数据 169.254.169.254
+      (a === 172 && b >= 16 && b < 32) ||
+      (a === 192 && b === 168) ||
+      (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+      (a === 198 && (b === 18 || b === 19)) || // 基准测试网段
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113) ||
+      a >= 224 // 组播和保留
+    );
   }
-  const x = ip.toLowerCase();
-  if (x.startsWith("::ffff:")) return isPrivateIp(x.slice(7));
-  return x === "::" || x === "::1" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe80");
+  const x = ip.toLowerCase().split("%")[0];
+  if (!net.isIPv6(x)) return true; // 认不出来的一律当内网
+  // IPv4 映射/兼容地址（::ffff:a.b.c.d、::ffff:7f00:1 这类十六进制写法也要拆出来）
+  const m4 = /^(?:0*:)*:ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(x) || /^::(\d+\.\d+\.\d+\.\d+)$/.exec(x);
+  if (m4) return isPrivateIp(m4[1]);
+  const mh = /^(?:0*:)*:ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(x);
+  if (mh) {
+    const hi = parseInt(mh[1], 16), lo = parseInt(mh[2], 16);
+    return isPrivateIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+  }
+  return (
+    x === "::" ||
+    x === "::1" ||
+    /^f[cd]/.test(x) || // 唯一本地
+    /^fe[89ab]/.test(x) || // 链路本地
+    /^ff/.test(x) || // 组播
+    x.startsWith("64:ff9b:") || // NAT64，可能指回内网 IPv4
+    x.startsWith("2001:db8:") ||
+    x.startsWith("2002:") // 6to4，可能嵌着内网 IPv4
+  );
 }
 
 /** 测试用：PRISM_ALLOW_PRIVATE_IMAGE_FETCH=1 放行所有内网地址，或者写成 "127.0.0.1:9100,..." 只放行这几个 host:port */
@@ -307,19 +339,70 @@ function privateAllowed(u: URL) {
     .includes(u.host.toLowerCase());
 }
 
-async function assertPublicHost(u: URL) {
-  if (privateAllowed(u)) return;
-  const h = u.hostname.replace(/^\[|\]$/g, "");
-  const ips = net.isIP(h) ? [h] : (await lookup(h, { all: true })).map((r) => r.address);
-  if (!ips.length || ips.some(isPrivateIp)) throw new Error("不允许访问内网地址");
+/**
+ * 解析域名并检查每个地址，返回第一个可用地址。
+ * 真正连接时就用这个地址（见 safeDispatcher），不再重新解析，防止 DNS 重绑定：
+ * 检查时解析到公网、连接时又解析到 127.0.0.1。
+ */
+async function resolvePublic(hostname: string): Promise<{ address: string; family: number }> {
+  const h = hostname.replace(/^\[|\]$/g, "");
+  if (net.isIP(h)) {
+    if (isPrivateIp(h)) throw new Error("不允许访问内网地址");
+    return { address: h, family: net.isIPv6(h) ? 6 : 4 };
+  }
+  const ips = await lookup(h, { all: true, verbatim: true });
+  if (!ips.length || ips.some((r) => isPrivateIp(r.address))) throw new Error("不允许访问内网地址");
+  return ips[0];
+}
+
+// 连接时用的 DNS 解析：只返回检查过的公网地址
+let dispatcher: import("undici").Agent | null = null;
+async function safeDispatcher() {
+  if (dispatcher) return dispatcher;
+  const { Agent } = await import("undici");
+  dispatcher = new Agent({
+    connect: {
+      // Node 的 net.connect 开了 autoSelectFamily 时会带 all: true 调用，要回数组
+      lookup(hostname, opts, cb) {
+        const all = !!(opts as { all?: boolean })?.all;
+        const done = cb as unknown as (err: Error | null, a?: unknown, f?: number) => void;
+        resolvePublic(hostname).then(
+          (r) => (all ? done(null, [r]) : done(null, r.address, r.family)),
+          (e) => done(e as Error),
+        );
+      },
+    },
+  });
+  return dispatcher;
+}
+
+/** 边读边数，超过上限立刻中断，不先把整个响应读进内存 */
+async function readCapped(res: Response, max: number): Promise<Buffer> {
+  if (!res.body) return Buffer.alloc(0);
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      throw new Error("图片太大");
+    }
+    parts.push(value);
+  }
+  return Buffer.concat(parts);
 }
 
 /**
- * 服务端下载外部图片（上游生图返回的临时链接、旧数据里的外链、模型回答里的图片）。
- * guardPrivate：给浏览器用的外链代理要拦住内网地址，重定向的每一跳都检查。
- * 只接受 image/* 内容，最大 20MB，20 秒超时。
+ * 服务端下载外部图片：上游生图返回的临时链接、旧数据里的外链、模型回答里的图片、API 调用方传进来的识图链接。
+ * - 一律拦截内网和保留地址，重定向的每一跳都检查；连接时用检查过的地址，防 DNS 重绑定
+ * - 只接受 image/*，最大 20MB，20 秒超时；没有 content-length 时边读边数
+ * - 测试环境可以用 PRISM_ALLOW_PRIVATE_IMAGE_FETCH 放行 mock 地址
+ * opts.guardPrivate 保留参数只是为了兼容旧调用，现在始终开启。
  */
-export async function fetchRemoteImage(url: string, opts: { guardPrivate?: boolean } = {}): Promise<{ mime: string; data: Buffer }> {
+export async function fetchRemoteImage(url: string, _opts: { guardPrivate?: boolean } = {}): Promise<{ mime: string; data: Buffer }> {
   let cur = url;
   for (let hop = 0; hop < 4; hop++) {
     let u: URL;
@@ -329,19 +412,38 @@ export async function fetchRemoteImage(url: string, opts: { guardPrivate?: boole
       throw new Error("图片地址无效");
     }
     if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("图片地址无效");
-    if (opts.guardPrivate) await assertPublicHost(u);
-    const res = await fetch(u, { redirect: "manual", signal: AbortSignal.timeout(20000), headers: { accept: "image/*,*/*;q=0.5" } });
+    if (u.username || u.password) throw new Error("图片地址无效");
+    const allowed = privateAllowed(u);
+    let res: Response;
+    if (allowed) {
+      res = await fetch(u, { redirect: "manual", signal: AbortSignal.timeout(20000), headers: { accept: "image/*,*/*;q=0.5" } });
+    } else {
+      await resolvePublic(u.hostname); // 先查一遍，给出清楚的报错
+      const { fetch: ufetch } = await import("undici");
+      res = (await ufetch(u, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(20000),
+        headers: { accept: "image/*,*/*;q=0.5" },
+        dispatcher: await safeDispatcher(),
+      })) as unknown as Response;
+    }
     if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+      await res.body?.cancel().catch(() => {});
       cur = new URL(res.headers.get("location")!, u).toString();
       continue;
     }
-    if (!res.ok) throw new Error(`下载图片失败：${res.status}`);
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`下载图片失败：${res.status}`);
+    }
     let mime = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || "";
     const len = Number(res.headers.get("content-length") || 0);
-    if (len > REMOTE_MAX) throw new Error("图片太大");
-    const data = Buffer.from(await res.arrayBuffer());
-    if (data.length > REMOTE_MAX) throw new Error("图片太大");
-    if (!mime.startsWith("image/")) {
+    if (len > REMOTE_MAX) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error("图片太大");
+    }
+    const data = await readCapped(res, REMOTE_MAX);
+    if (!mime.startsWith("image/") || mime === "image/svg+xml") {
       const sniffed = sniffImage(data);
       if (!sniffed) throw new Error("链接返回的不是图片");
       mime = sniffed;
@@ -376,4 +478,154 @@ export async function persistRemoteImage(url: string): Promise<string> {
     }
   }
   return localImageUrl(url);
+}
+
+
+// ===== 视频 =====
+
+/**
+ * 视频转存上限：接了 Blob 时 20MB；存 MySQL 时 15MB（prism_files.data 是 MEDIUMBLOB，单行最多 16MB）。
+ * 几秒钟的 480p/720p 视频一般 1–5MB，正常用不会碰到。
+ */
+export function videoMaxBytes() {
+  return env.blobToken ? 20 * 1024 * 1024 : 15 * 1024 * 1024;
+}
+
+/**
+ * 视频服务的结果只允许从这几类域名下载 / 转发：
+ * - *.hf.space（Hugging Face Space 的 Gradio 文件地址）
+ * - huggingface.co（及其 CDN 子域）
+ * - *.bigmodel.cn / *.zhipuai.cn（智谱生成结果和封面）
+ * 测试时 PRISM_TEST_VIDEO_HOSTS 可以再放行几个 host:port（逗号分隔，线上不要设）。
+ */
+export function videoHostAllowed(u: URL): boolean {
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const h = u.hostname.toLowerCase();
+  const test = (process.env.PRISM_TEST_VIDEO_HOSTS || "")
+    .split(",")
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean);
+  if (test.includes(u.host.toLowerCase())) return true;
+  if (u.protocol !== "https:") return false;
+  return (
+    /^[a-z0-9-]+\.hf\.space$/.test(h) ||
+    h === "huggingface.co" ||
+    h.endsWith(".huggingface.co") ||
+    h.endsWith(".hf.co") ||
+    h === "bigmodel.cn" ||
+    h.endsWith(".bigmodel.cn") ||
+    h.endsWith(".zhipuai.cn")
+  );
+}
+
+function sniffVideo(b: Buffer): string | null {
+  if (b.length < 12) return null;
+  if (b.slice(4, 8).toString() === "ftyp") return "video/mp4";
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
+  return null;
+}
+
+/** 打开一个外部地址（只允许视频服务域名；拦内网、防 DNS 重绑定，重定向每一跳都检查）。返回未读的响应 */
+async function openAllowed(url: string, headers: Record<string, string>, timeoutMs: number): Promise<Response> {
+  let cur = url;
+  for (let hop = 0; hop < 4; hop++) {
+    let u: URL;
+    try {
+      u = new URL(cur);
+    } catch {
+      throw new Error("视频地址无效");
+    }
+    if (u.username || u.password || !videoHostAllowed(u)) throw new Error("不允许访问这个地址");
+    let res: Response;
+    if (privateAllowed(u)) {
+      res = await fetch(u, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers });
+    } else {
+      await resolvePublic(u.hostname);
+      const { fetch: ufetch } = await import("undici");
+      res = (await ufetch(u, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers, dispatcher: await safeDispatcher() })) as unknown as Response;
+    }
+    if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+      await res.body?.cancel().catch(() => {});
+      cur = new URL(res.headers.get("location")!, u).toString();
+      continue;
+    }
+    return res;
+  }
+  throw new Error("视频地址重定向次数太多");
+}
+
+/** 下载视频（或封面图）：只认视频服务域名，最大 max 字节，60 秒超时 */
+export async function fetchRemoteVideo(url: string, max = videoMaxBytes()): Promise<{ mime: string; data: Buffer }> {
+  const res = await openAllowed(url, { accept: "video/*,*/*;q=0.5" }, 60000);
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`下载视频失败：${res.status}`);
+  }
+  const len = Number(res.headers.get("content-length") || 0);
+  if (len > max) {
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error("视频太大"), { tooBig: true });
+  }
+  let data: Buffer;
+  try {
+    data = await readCapped(res, max);
+  } catch (e) {
+    if (/太大/.test(String((e as Error).message))) throw Object.assign(new Error("视频太大"), { tooBig: true });
+    throw e;
+  }
+  const real = sniffVideo(data);
+  if (!real) throw new Error("链接返回的不是视频");
+  return { mime: real, data };
+}
+
+/** 下载视频服务给的封面图（同样只认视频服务域名） */
+export async function fetchRemotePoster(url: string): Promise<{ mime: string; data: Buffer }> {
+  const res = await openAllowed(url, { accept: "image/*" }, 20000);
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`下载封面失败：${res.status}`);
+  }
+  const data = await readCapped(res, 5 * 1024 * 1024);
+  const mime = sniffImage(data);
+  if (!mime) throw new Error("封面不是图片");
+  return { mime, data };
+}
+
+/**
+ * 转存视频：成功返回本站地址；太大或下载失败时退回经本站转发的原链接（temp=true，原链接过期后就打不开了）。
+ * 下载失败重试一次。
+ */
+export async function persistRemoteVideo(url: string): Promise<{ url: string; temp: boolean; reason?: string }> {
+  let reason = "";
+  for (let i = 0; i < 2; i++) {
+    try {
+      const f = await fetchRemoteVideo(url);
+      return { url: await saveFile(f.data, f.mime, "videos"), temp: false };
+    } catch (e) {
+      reason = (e as Error).message;
+      if ((e as { tooBig?: boolean }).tooBig) break;
+    }
+  }
+  console.error("[prism] 转存视频失败，改用转发地址", reason);
+  return { url: localVideoUrl(url), temp: true, reason };
+}
+
+export async function persistRemotePoster(url: string): Promise<string | undefined> {
+  try {
+    const f = await fetchRemotePoster(url);
+    return await saveFile(f.data, f.mime);
+  } catch (e) {
+    console.error("[prism] 转存视频封面失败", (e as Error).message);
+    return undefined;
+  }
+}
+
+/**
+ * 转发外部视频（/api/files/vext?u=...）：浏览器只访问本站。把 Range 原样带给对方，边收边发，不整段读进内存。
+ * 只允许视频服务域名；最多转发 60MB。
+ */
+export async function openRemoteVideo(url: string, range?: string | null): Promise<Response> {
+  const headers: Record<string, string> = { accept: "video/*,*/*;q=0.5" };
+  if (range && /^bytes=\d*-\d*$/.test(range)) headers.range = range;
+  return openAllowed(url, headers, 60000);
 }

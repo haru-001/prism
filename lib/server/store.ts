@@ -8,6 +8,7 @@ import { recordUsage } from "./stats";
 import { clearDetails } from "./logdetail";
 import type { ReqCtx } from "./relay/capture";
 import type {
+  ChatMsg,
   Channel,
   Conversation,
   ConversationMeta,
@@ -111,6 +112,23 @@ export async function saveConversation(c: Conversation) {
   };
   // 两张表互不依赖，并行写（连接池里的连接会被复用，不会多握手）
   await Promise.all([kv().set(P + "conv:" + c.id, c), kv().hset(P + "conv:meta", c.id, meta)]);
+}
+
+/**
+ * 只改对话里的一条消息（视频任务在后台完成时把结果写回去）。f 返回 null 表示不用改。
+ * 先读后写；用户同时在页面上保存时，以后写的为准，页面那边拿到结果后也会再保存一次。
+ */
+export async function patchConversationMessage(convId: string, msgId: string, f: (m: ChatMsg) => ChatMsg | null) {
+  const c = await kv().get<Conversation>(P + "conv:" + convId);
+  if (!c || !Array.isArray(c.messages)) return false;
+  const i = c.messages.findIndex((m) => m.id === msgId);
+  if (i < 0) return false;
+  const next = f(c.messages[i]);
+  if (!next) return false;
+  c.messages[i] = next;
+  c.updatedAt = Date.now();
+  await saveConversation(c);
+  return true;
 }
 
 export async function deleteConversation(id: string) {

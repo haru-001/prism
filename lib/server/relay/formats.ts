@@ -14,7 +14,23 @@ export interface Collected {
   finish: string;
 }
 
+/**
+ * /v1 转发时，对话里产出的图片转成 Markdown 图片文本（OpenAI / Claude 格式没有统一的图片输出字段），
+ * 客户端大多能直接渲染 ![](data:...)。
+ */
+export async function* imagesAsText(events: AsyncGenerator<IChatEvent>): AsyncGenerator<IChatEvent> {
+  for await (const ev of events) {
+    if (ev.type !== "image") {
+      yield ev;
+      continue;
+    }
+    const src = ev.data ? `data:${ev.mime || "image/png"};base64,${ev.data}` : ev.url;
+    if (src) yield { type: "text", text: `\n\n![image](${src})\n\n` };
+  }
+}
+
 export async function collect(events: AsyncGenerator<IChatEvent>): Promise<Collected> {
+  events = imagesAsText(events);
   const out: Collected = { text: "", reasoning: "", usage: { input: 0, output: 0 }, finish: "stop" };
   for await (const ev of events) {
     if (ev.type === "text") out.text += ev.text;
@@ -88,6 +104,7 @@ export function fromOpenAI(body: any): IChatRequest {
 const oaFinish = (r: string) => (r === "length" ? "length" : "stop");
 
 export async function* openaiSSE(events: AsyncGenerator<IChatEvent>, model: string, includeUsage: boolean): AsyncGenerator<string> {
+  events = imagesAsText(events);
   const id = "chatcmpl-" + randomId(24);
   const created = Math.floor(Date.now() / 1000);
   const chunk = (delta: Record<string, unknown>, finish: string | null = null) =>
@@ -176,6 +193,7 @@ export function fromClaude(body: any): IChatRequest {
 const clStop = (r: string) => (r === "length" ? "max_tokens" : "end_turn");
 
 export async function* claudeSSE(events: AsyncGenerator<IChatEvent>, model: string): AsyncGenerator<string> {
+  events = imagesAsText(events);
   const id = "msg_" + randomId(24);
   yield sseLine(
     {
@@ -291,6 +309,8 @@ export async function* geminiStream(events: AsyncGenerator<IChatEvent>, model: s
   try {
     for await (const ev of events) {
       if (ev.type === "text") yield emit(gmChunk(model, [{ text: ev.text }]));
+      else if (ev.type === "image" && ev.data) yield emit(gmChunk(model, [{ inlineData: { mimeType: ev.mime || "image/png", data: ev.data } }]));
+      else if (ev.type === "image" && ev.url) yield emit(gmChunk(model, [{ text: `\n\n![image](${ev.url})\n\n` }]));
       else if (ev.type === "reasoning") yield emit(gmChunk(model, [{ text: ev.text, thought: true }]));
       else if (ev.type === "usage") usage = ev.usage;
       else if (ev.type === "finish") finish = ev.reason;

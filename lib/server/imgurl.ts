@@ -33,7 +33,9 @@ export function sigKey(pathname: string, u: string | null): string {
   try {
     p = decodeURIComponent(pathname);
   } catch {}
-  return p === FILES + "ext" ? "ext:" + (u || "") : p;
+  if (p === FILES + "ext") return "ext:" + (u || "");
+  if (p === FILES + "vext") return "vext:" + (u || "");
+  return p;
 }
 
 export function verifyImgSig(pathname: string, sp: URLSearchParams): boolean {
@@ -76,6 +78,19 @@ export function localImageUrl(u: string): string {
   return path + "?" + params.toString();
 }
 
+/**
+ * 视频服务给的外部视频链接（没能转存时）改写成经本站转发的 /api/files/vext?u=原地址&s=签名，
+ * 服务端只转发视频服务的域名（见 files.ts 的 videoHostAllowed）。站内地址照常重新签名。
+ */
+export function localVideoUrl(u: string): string {
+  if (typeof u !== "string" || !u) return u;
+  if (!/^https?:\/\//i.test(u)) return localImageUrl(u);
+  const path = FILES + "vext";
+  const params = new URLSearchParams({ u });
+  params.set("s", imgSig(sigKey(path, u)));
+  return path + "?" + params.toString();
+}
+
 /** 站内地址补成完整链接（给 API 客户端、导出文件用） */
 export function absoluteImageUrl(u: string, origin: string): string {
   const l = localImageUrl(u);
@@ -86,19 +101,30 @@ export function localizeConversation<T extends Conversation | null | undefined>(
   if (!c || !Array.isArray(c.messages)) return c;
   let changed = false;
   const messages = c.messages.map((m) => {
-    if (!m.images?.length) return m;
-    const images = m.images.map(localImageUrl);
-    if (images.every((x, i) => x === m.images![i])) return m;
-    changed = true;
-    return { ...m, images };
+    let out = m;
+    if (m.images?.length) {
+      const images = m.images.map(localImageUrl);
+      if (!images.every((x, i) => x === m.images![i])) out = { ...out, images };
+    }
+    if (m.video?.url) {
+      const video = { ...m.video, url: localVideoUrl(m.video.url), poster: m.video.poster ? localImageUrl(m.video.poster) : undefined };
+      if (video.url !== m.video.url || video.poster !== m.video.poster) out = { ...out, video };
+    }
+    if (m.videoMeta?.images?.length) {
+      const images = m.videoMeta.images.map(localImageUrl);
+      if (!images.every((x, i) => x === m.videoMeta!.images![i])) out = { ...out, videoMeta: { ...m.videoMeta, images } };
+    }
+    if (out !== m) changed = true;
+    return out;
   });
   return (changed ? { ...c, messages } : c) as T;
 }
 
 export function localizeGallery(items: GalleryItem[]): GalleryItem[] {
   return items.map((g) => {
-    const url = localImageUrl(g.url);
-    return url === g.url ? g : { ...g, url };
+    const url = g.kind === "video" ? localVideoUrl(g.url) : localImageUrl(g.url);
+    const poster = g.poster ? localImageUrl(g.poster) : undefined;
+    return url === g.url && poster === g.poster ? g : { ...g, url, poster };
   });
 }
 

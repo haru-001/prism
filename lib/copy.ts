@@ -40,9 +40,10 @@ export const copy = {
   chat: {
     emptyTitle: "一切就绪。今天要处理什么？",
     emptyNoChannel: "目前还没有可用线路，请先到渠道页接入一条，我在那边等{name}。",
-    placeholder: "发消息，或输入 /图 直接生图…",
+    placeholder: "发消息，或输入 /图 生图、/视频 生成视频…",
     placeholderImage: "描述你想要的画面，可以拖一张参考图进来…",
-    hint: "Enter 发送 · Shift+Enter 换行",
+    placeholderVideo: "描述画面和动作，比如：海边日落，镜头缓慢推近，浪花拍打礁石…",
+    hint: "Enter 发送 · Shift+Enter 换行 · /视频 描述 生成视频",
     presetPick: "用预设开场：",
     noVision: "提醒一下：{model} 没有「识图」标签，可能看不到这张图。",
     compareHint: "选中的回答会作为后续对话的上下文，其余只留作对比。",
@@ -100,8 +101,10 @@ export const copy = {
   },
 
   gallery: {
-    empty: "图库还是空的。在对话里切到「生图」，或输入 /图 生成第一张。",
+    empty: "图库还是空的。在对话里切到「生图」或「视频」，或输入 /图、/视频 生成第一件作品。",
     say: "这里收着你画过的 {n} 张图。点开可以看提示词、复制或下载，也能回到当时的对话。",
+    sayVideoOnly: "这里收着你生成的 {v} 段视频。点开可以播放、下载、复制提示词，也能回到当时的对话。",
+    sayVideo: "这里收着 {n} 张图和 {v} 段视频。点开可以播放、下载、复制提示词，也能回到当时的对话。",
   },
 
   logs: {
