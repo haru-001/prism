@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { bustMeta, moodMeta, type Mood, type OutfitId } from "@/lib/rinne";
 
 /**
- * 棱音短视频：叠在同一状态的静态立绘上面（视频首尾帧就是这张母版，像素对齐），播完停在首帧，和静态图无缝。
+ * 棱音短视频：和同一状态的静态立绘放在同一位置，两者只显示其一：
+ * 播放中隐藏静态图（立绘和视频都是透明图，同时显示会叠出两只手，形成残影），播完或暂停立刻隐藏视频、换回静态图。
  * - idle-blink（等待状态，眨眼）、login-wave（欢迎状态，挥手/眨眼）、image-done（成功状态，笑）
  * - 每套服装各一段，WebM VP9 带透明通道，单段约 10–30KB
  * - replay：播完隔多少毫秒再播一次（0 = 只播一次）
@@ -32,14 +33,31 @@ export function RinneClip({ clip, outfit, bust, replay = 0 }: { clip: ClipId; ou
     const v = ref.current;
     if (!ok || !v) return;
     let t: ReturnType<typeof setTimeout> | undefined;
+    const fig = v.closest(".rn-fig");
+    const on = () => fig?.classList.add("rn-clip-on");
+    // 换回静态图时不走淡入（否则静态图从透明慢慢出现，人物会闪一下）：临时关掉过渡，两帧后恢复
+    const off = () => {
+      if (!fig?.classList.contains("rn-clip-on")) return;
+      fig.classList.add("rn-clip-swap");
+      fig.classList.remove("rn-clip-on");
+      requestAnimationFrame(() => requestAnimationFrame(() => fig.classList.remove("rn-clip-swap")));
+    };
     const ended = () => {
+      off();
       v.currentTime = 0;
       if (replay > 0) t = setTimeout(() => v.play().catch(() => {}), replay);
     };
+    v.addEventListener("playing", on);
+    v.addEventListener("pause", off);
     v.addEventListener("ended", ended);
-    v.play().catch(() => {});
+    v.addEventListener("error", off);
+    v.play().catch(off);
     return () => {
+      off();
+      v.removeEventListener("playing", on);
+      v.removeEventListener("pause", off);
       v.removeEventListener("ended", ended);
+      v.removeEventListener("error", off);
       if (t) clearTimeout(t);
     };
   }, [ok, replay, clip, outfit]);
