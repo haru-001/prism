@@ -60,7 +60,7 @@ export function RinnePeek({ input, busy }: { input: string; busy: boolean }) {
           不再提示
         </button>
       </div>
-      <RinneFigure mood="guide" size="bar" standalone className="rn-bar-fig rn-peek-fig" />
+      <RinneFigure mood="guide" size="bar" standalone className="rn-bar-fig rn-peek-fig" clip="guide-point" />
     </div>
   );
 }

@@ -104,9 +104,10 @@ export function stageFit(o: OutfitId, m: Mood): { arw: number; ox: number } {
  * BUST_K：显示窗口占画布高度的比例（站姿约到腰，坐姿约到膝）。
  */
 export const BUST_K = 0.44;
-export function bustMeta(o: OutfitId, m: Mood): { ty: number; bx: number } {
-  const e = A.outfits[o][m];
-  return { ty: e.ty ?? 0.02, bx: e.bx };
+export function bustMeta(o: OutfitId, m: Mood): { ty: number; bx: number; bw: number } {
+  const e = A.outfits[o][m] as { ty?: number; bx: number; bc?: number; bw?: number };
+  // bw / bc：手臂伸出、举着相机这类动作在 0.8 倍宽的窗口里会被切掉时，窗口加宽（最多 1.4 倍）并以人物整体居中（scripts/rinne 里离线算好）
+  return { ty: e.ty ?? 0.02, bx: e.bc ?? e.bx, bw: e.bw ?? 0.8 };
 }
 
 /** 各尺寸档的显示高度：[桌面, 手机(≤560px)] */

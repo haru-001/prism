@@ -127,7 +127,7 @@ export function RinneFigure({
       data-outfit={shownTop.outfit}
       data-mood={shownTop.mood}
       data-pending={top.phase === "enter" ? `${top.outfit}/${top.mood}` : undefined}
-      style={{ "--ar": meta.ar, "--rn-fade": r.animate ? `${FADE_MS}ms` : "0ms", ...(bust ? { "--k": BUST_K } : {}) } as React.CSSProperties}
+      style={{ "--ar": meta.ar, "--rn-fade": r.animate ? `${FADE_MS}ms` : "0ms", ...(bust ? { "--k": BUST_K, "--bw": bustMeta(top.outfit, top.mood).bw } : {}) } as React.CSSProperties}
     >
       {layers.map((l, i) => {
         const s = figureSrc(l.outfit, l.mood, size, mobileH);

@@ -58,7 +58,7 @@ export function VideoPending({ m }: { m: ChatMsg }) {
             : "生成中";
   const modeName = VIDEO_MODES.find((x) => x.id === m.videoMeta?.mode)?.name || "视频";
   return (
-    <RinneInline mood={queued ? "waiting" : "imaging"} testId="video-pending">
+    <RinneInline mood={queued ? "waiting" : "imaging"} testId="video-pending" clip={queued ? "idle-blink" : "imaging-work"} replay={queued ? 6000 : 4000}>
       <div className="w-full max-w-sm space-y-1.5" role="status" aria-live="polite" data-testid="video-status" data-phase={phase}>
         <div className="text-[13px] font-medium text-ink/90" data-testid="video-line">
           {rinneLine(outfit, queued ? "videoQueued" : "videoRunning")}

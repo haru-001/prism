@@ -121,7 +121,7 @@
 
 /* ===== 半身（toast、提醒条、对话小场景） ===== */
 .rn-fig.rn-bust {
-  width: calc(var(--H) * 0.8);
+  width: calc(var(--H) * var(--bw, 0.8));
   overflow: hidden;
   border-radius: 16px;
   background: radial-gradient(80% 70% at 50% 38%, rgb(var(--brand-rgb, 124 92 255) / 0.16), rgb(var(--brand-rgb, 124 92 255) / 0.04) 70%, transparent);

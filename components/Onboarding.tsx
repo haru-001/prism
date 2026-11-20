@@ -8,6 +8,7 @@ import { normalizeBaseUrl } from "@/lib/models";
 import type { ChannelType, PublicChannel } from "@/lib/types";
 import { Brand, IdolAvatar } from "./Logo";
 import { RinneScene } from "./rinne/RinneScene";
+import { MOOD_CLIP } from "./rinne/RinneClip";
 import { RinneBubble } from "./rinne/RinneBubble";
 import type { Mood } from "@/lib/rinne";
 import { ProviderCards } from "./ProviderCards";
@@ -218,6 +219,8 @@ export function Onboarding({ passwordMode, needSetupCode = false, channelCount, 
         mobfull
         priority
         testId="onboarding-scene"
+        clip={MOOD_CLIP[mood]}
+        replay={mood === "thinking" ? 3000 : 9000}
         link={
           <RinneBubble tone={mood === "error" ? "bad" : mood === "success" ? "ok" : "normal"} title={`第 ${step} 步 / 共 4 步`}>
             {say}

@@ -805,6 +805,8 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
                   ly={34}
                   priority
                   testId="chat-empty-scene"
+                  clip="guide-point"
+                  replay={9000}
                   link={
                     <RinneBubble title="我是棱音，您的专属秘书。">
                       <p className="mb-3">{fill(copy.chat.emptyNoChannel, { name })}</p>

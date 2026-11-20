@@ -261,7 +261,7 @@ export function MessageItem({
           ) : null
         ) : m.mode === "image" ? (
           m.pending ? (
-            <RinneInline mood="imaging" testId="imaging-scene">
+            <RinneInline mood="imaging" testId="imaging-scene" clip="imaging-work" replay={4000}>
               <div className="w-full space-y-2">
                 <div className="pill !mx-0">{C.chat.imageStart.replace("{model}", m.model || "")}</div>
                 <div className="grid max-w-[420px] grid-cols-2 gap-2">
@@ -316,7 +316,7 @@ export function MessageItem({
               </div>
             ) : m.images?.length ? null : (
               m.pending ? (
-                <RinneInline mood="thinking" testId="thinking-scene">
+                <RinneInline mood="thinking" testId="thinking-scene" clip="think-loop" replay={3000}>
                   <div className="w-full max-w-xs" role="status">
                     <div className="mb-1.5 text-[13px] text-muted">{m.reasoning ? "正在推理，请稍候…" : "正在整理回答…"}</div>
                     <div className="rn-progress" aria-hidden>
@@ -385,7 +385,7 @@ export function MessageItem({
             return (
               <div className="mt-2">
                 {isLast ? (
-                  <RinneInline mood="error" testId="error-scene">
+                  <RinneInline mood="error" testId="error-scene" clip="error-sorry">
                     {card}
                   </RinneInline>
                 ) : (
