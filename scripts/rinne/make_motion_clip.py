@@ -11,6 +11,7 @@
 """
 import glob, json, math, os, subprocess, sys, tempfile
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -28,25 +29,47 @@ def bump(t):  # 0→1→0，两端速度为 0
     return (1 - math.cos(2 * math.pi * t)) / 2
 
 
+def ease_ends(t, w=0.12):
+    """首尾各 12% 时长内把动作幅度平滑收到 0：从静态图起步、回到静态图时速度为 0，不会“咯噔”一下"""
+    return float(smooth(min(t, 1 - t) / w))
+
+
 def motion(mood, t, side):
     """返回 (上半身角度, 头部角度, 上半身竖向缩放)。角度单位度，正值逆时针；side=+1/-1 表示手伸出的方向"""
     b = bump(t)
+    e = ease_ends(t)
     breath = 1 + 0.006 * b
     if mood == "guide":  # 朝示意方向前倾，头跟着歪一下
         return (2.2 * side * b, 2.0 * side * b, breath)
     if mood == "thinking":  # 歪头想一想：先歪向一边，再慢慢回来，上身轻摇
-        s = math.sin(2 * math.pi * t)
+        s = math.sin(2 * math.pi * t) * e
         return (0.9 * s, 3.2 * math.sin(math.pi * t) ** 2 * (1 if side > 0 else -1) + 0.8 * s, breath)
     if mood == "error":  # 两次低头致歉：上身微微下沉，头点两下
         d = (1 - math.cos(4 * math.pi * t)) / 2
         return (0.6 * side * d, 2.4 * side * d, 1 - 0.014 * d)
     if mood == "imaging":  # 专注取景：上身向前探一点，呼吸更明显
-        return (1.2 * side * b, 0.8 * side * math.sin(2 * math.pi * t), 1 + 0.010 * b)
+        return (1.2 * side * b, 0.8 * side * math.sin(2 * math.pi * t) * e, 1 + 0.010 * b)
+    if mood == "welcome":  # 打招呼：微微侧身、歪头
+        return (1.0 * side * b, 2.6 * side * b, breath)
+    if mood == "success":  # 开心：歪头两下 + 轻轻挺身
+        d = (1 - math.cos(4 * math.pi * t)) / 2
+        return (0.8 * side * b, 2.2 * side * d, 1 + 0.010 * b)
+    if mood == "waiting":  # 等待：呼吸 + 轻轻歪头
+        return (0.5 * side * b, 1.6 * side * b, 1 + 0.008 * b)
     return (0.0, 0.0, 1.0)
 
 
 def premul(im):
-    return im.convert("RGBa")
+    a = np.asarray(im.convert("RGBA"), dtype=np.float32)
+    a[..., :3] *= a[..., 3:4] / 255
+    return a
+
+
+def unpremul(p):
+    a = p[..., 3:4]
+    out = p.copy()
+    out[..., :3] = np.where(a > 0.5, p[..., :3] * 255 / np.maximum(a, 1e-3), 0)
+    return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8), "RGBA")
 
 
 def smooth(x):
@@ -54,35 +77,33 @@ def smooth(x):
     return x * x * (3 - 2 * x)
 
 
+def rot_inv(x, y, cx, cy, deg):
+    """把输出坐标按逆时针 deg 的旋转反推回原图坐标（deg 可以是逐像素数组）"""
+    th = np.radians(deg)
+    c, s = np.cos(th), np.sin(th)
+    dx, dy = x - cx, y - cy
+    return cx + dx * c - dy * s, cy + dx * s + dy * c
+
+
 def render(src, W, mood, t, k, geo):
-    """src: 预乘后的立绘（W×H）；k: 角度系数（防裁边）；geo: 支点信息"""
+    """src: 预乘 alpha 的立绘（H×W×4 float32）。
+    用连续的形变场代替“旋转后按横条混合”：角度随高度平滑过渡（腰以下 0、腰以上全角度，颈部同理），
+    每个像素只采样一次，不会在腰和脖子处出现重影、断裂或手臂错位"""
     ua, ha, sy = motion(mood, t, geo["side"])
     ua, ha = ua * k, ha * k
     cx, wy, ny = geo["cx"], geo["wy"], geo["ny"]
-    upper = src
-    if abs(sy - 1) > 1e-6:  # 上半身以腰为基准竖向缩放（呼吸 / 下沉）
-        nh = round(wy * sy)
-        top = src.crop((0, 0, W, round(wy))).resize((W, nh), Image.LANCZOS)
-        upper = Image.new("RGBa", (W, H), (0, 0, 0, 0))
-        upper.paste(src, (0, 0))
-        upper.paste(Image.new("RGBa", (W, round(wy)), (0, 0, 0, 0)), (0, 0))
-        upper.paste(top, (0, round(wy) - nh))
-    if abs(ha) > 1e-4:  # 头：以颈为支点
-        head = upper.rotate(ha, resample=Image.BICUBIC, center=(cx, ny))
-        m = smooth((ny + 0.03 * H - np.arange(H)) / (0.06 * H))[:, None]
-        upper = blend(head, upper, m, W)
-    if abs(ua) > 1e-4:  # 上半身：以腰为支点
-        upper = upper.rotate(ua, resample=Image.BICUBIC, center=(cx, wy))
-    m = smooth((wy + BAND * H / 2 - np.arange(H)) / (BAND * H))[:, None]
-    out = blend(upper, src, m, W)
-    return out.convert("RGBA")
-
-
-def blend(a, b, m, W):
-    A = np.asarray(a, dtype=np.float32)
-    B = np.asarray(b, dtype=np.float32)
-    M = np.repeat(m, W, axis=1)[..., None].astype(np.float32)
-    return Image.fromarray(np.clip(A * M + B * (1 - M) + 0.5, 0, 255).astype(np.uint8), "RGBa")
+    Y, X = np.mgrid[0:H, 0:W].astype(np.float32)
+    ww = smooth((wy + BAND * H / 2 - Y) / (BAND * H))  # 1 = 腰以上
+    x1, y1 = rot_inv(X, Y, cx, wy, ua * ww)
+    wn = smooth((ny + 0.03 * H - y1) / (0.06 * H))  # 1 = 颈以上
+    x2, y2 = rot_inv(x1, y1, cx, ny, ha * wn)
+    w2 = smooth((wy + BAND * H / 2 - y2) / (BAND * H))
+    y3 = y2 + w2 * ((wy - (wy - y2) / sy) - y2)  # 上半身以腰为基准竖向缩放（呼吸 / 下沉）
+    out = cv2.remap(src, x2.astype(np.float32), y3.astype(np.float32), cv2.INTER_LANCZOS4,
+                    borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    out = np.clip(out, 0, 255)
+    out[..., :3] = np.minimum(out[..., :3], out[..., 3:4])  # 三次插值的过冲不能超过 alpha（否则边缘发白）
+    return unpremul(out)
 
 
 def geometry(still_rgba, meta, W):
@@ -99,7 +120,7 @@ def geometry(still_rgba, meta, W):
 
 
 def lost(src, W, mood, k, geo, n):
-    base = np.asarray(src.convert("RGBA"))[..., 3].astype(np.float64).sum()
+    base = src[..., 3].astype(np.float64).sum()
     worst = 0.0
     for i in range(0, n + 1, max(1, n // 12)):
         f = render(src, W, mood, i / n, k, geo)
@@ -107,10 +128,21 @@ def lost(src, W, mood, k, geo, n):
     return worst
 
 
-def main(outfits):
+# 原 AI 视频和立绘对不上（衣服颜色不同）时，用立绘动作代替：python3 make_motion_clip.py qipao/login-wave
+EXTRA = {"login-wave": ("welcome", 2.6), "idle-blink": ("waiting", 3.0), "image-done": ("success", 2.6)}
+
+
+def main(args):
     assets = json.load(open(os.path.join(ROOT, "lib", "rinne-assets.json")))
-    for o in outfits:
-        for clip, (mood, secs) in CLIPS.items():
+    todo = []
+    for a in args:
+        if "/" in a:
+            o, c = a.split("/")
+            todo.append((o, c, (CLIPS.get(c) or EXTRA[c])))
+        else:
+            todo += [(a, c, v) for c, v in CLIPS.items()]
+    for o, clip, (mood, secs) in todo:
+        if True:
             meta = assets["outfits"][o][mood]
             path = os.path.join(ROOT, "public/img/rinne", o, f"{mood}-2x.{meta['f'][1]}.webp")
             still = Image.open(path).convert("RGBA")
@@ -134,8 +166,8 @@ def main(outfits):
                     f = still if i in (0, n) else render(src, W, mood, i / n, k, geo)
                     f.save(os.path.join(td, f"f_{i:04d}.png"))
                 subprocess.check_call(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(td, "f_%04d.png"),
-                                       "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "38", "-row-mt", "1",
-                                       "-deadline", "good", "-cpu-used", "2",
+                                       "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "33", "-row-mt", "1",
+                                       "-deadline", "good", "-cpu-used", "3",
                                        "-auto-alt-ref", "0", "-metadata:s:v:0", "alpha_mode=1", out])
             print(o, clip, f"{W}x{H}", f"k={k:.1f}", os.path.getsize(out), flush=True)
 
