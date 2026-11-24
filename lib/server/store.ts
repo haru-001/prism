@@ -72,9 +72,14 @@ export async function getSettings(opts?: { fresh?: boolean }): Promise<Settings>
   return { ...defaultSettings, ...((await kv().get<Partial<Settings>>(P + "settings", opts)) || {}) };
 }
 
+const RINNE_KEYS = ["rinneOutfit", "rinneMotion", "rinneShow", "rinneAuto", "rinneAt"] as const;
+
 export async function saveSettings(s: Partial<Settings>) {
   const cur = await getSettings({ fresh: true });
-  const next = { ...cur, ...s };
+  const patch = { ...s };
+  // 棱音形象：比服务端已存的还旧的改动（另一个标签页、迟到的重试）不覆盖新的
+  if (patch.rinneAt && cur.rinneAt && patch.rinneAt < cur.rinneAt) for (const k of RINNE_KEYS) delete patch[k];
+  const next = { ...cur, ...patch };
   await kv().set(P + "settings", next);
   return next;
 }

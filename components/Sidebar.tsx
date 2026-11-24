@@ -4,7 +4,7 @@ import { RinneSideCard } from "./rinne/RinneSideCard";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, BookKey, Images, MessageSquarePlus, ScrollText, Search, Settings, Trash2, Waypoints, X } from "lucide-react";
+import { BarChart3, BookKey, Images, Lightbulb, MessageSquarePlus, Palette, ScrollText, Search, Settings, Trash2, Waypoints, X } from "lucide-react";
 import { Brand } from "./Logo";
 import { useApp } from "./AppContext";
 import { api } from "@/lib/client/api";
@@ -13,6 +13,8 @@ import { copy, fill } from "@/lib/copy";
 import type { ConversationMeta } from "@/lib/types";
 
 const NAV = [
+  { href: "/draw", label: "画图", icon: Palette },
+  { href: "/prompts", label: "提示词", icon: Lightbulb },
   { href: "/gallery", label: "图库", icon: Images },
   { href: "/channels", label: "渠道", icon: Waypoints },
   { href: "/usage", label: "用量", icon: BarChart3 },

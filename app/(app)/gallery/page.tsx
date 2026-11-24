@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, CheckSquare, Copy, Download, Film, Loader2, MessageSquare, Play, Search, Trash2, X } from "lucide-react";
 import { Empty, Modal, PageHeader, copyText, toast } from "@/components/ui";
@@ -125,6 +125,18 @@ export default function GalleryPage() {
   }, [items, q, kind]);
   const videos = (items || []).filter((i) => i.kind === "video").length;
 
+  // 图多的时候先渲染前 60 张，滚到底附近再接着显示（2000 张一次性渲染会卡）
+  const [limit, setLimit] = useState(60);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => setLimit(60), [q, kind]);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setLimit((l) => l + 60), { rootMargin: "1200px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [limit, list.length]);
+
   return (
     <div className="scroll-thin h-full overflow-y-auto">
       <PageHeader
@@ -171,7 +183,7 @@ export default function GalleryPage() {
           </div>
         ) : !items.length ? (
           <Empty text={copy.gallery.empty}>
-            <Link href="/" className="btn-primary">
+            <Link href="/draw" className="btn-primary">
               去画第一张
             </Link>
           </Empty>
@@ -194,7 +206,7 @@ export default function GalleryPage() {
             </div>
           )}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {list.map((i) => (
+            {list.slice(0, picking ? list.length : limit).map((i) => (
               <div
                 key={i.id}
                 role="button"
@@ -274,6 +286,13 @@ export default function GalleryPage() {
               </div>
             ))}
           </div>
+          {!picking && list.length > limit && (
+            <div ref={moreRef} className="py-6 text-center">
+              <button className="btn-ghost btn-sm" onClick={() => setLimit((l) => l + 60)}>
+                显示更多（{limit} / {list.length}）
+              </button>
+            </div>
+          )}
           </>
         )}
       </div>

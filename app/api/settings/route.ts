@@ -29,6 +29,7 @@ async function PUTHandler(req: Request) {
   if (isMotion(b.rinneMotion)) patch.rinneMotion = b.rinneMotion;
   if (typeof b.rinneShow === "boolean") patch.rinneShow = b.rinneShow;
   if (typeof b.rinneAuto === "boolean") patch.rinneAuto = b.rinneAuto;
+  if (typeof b.rinneAt === "number" && Number.isFinite(b.rinneAt) && b.rinneAt > 0) patch.rinneAt = Math.floor(b.rinneAt);
   if (b.temperature != null && Number.isFinite(Number(b.temperature))) patch.temperature = Math.min(2, Math.max(0, Number(b.temperature)));
   return Response.json({ settings: await saveSettings(patch) });
 }

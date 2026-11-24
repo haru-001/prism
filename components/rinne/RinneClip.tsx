@@ -52,7 +52,9 @@ function canPlayAlpha() {
   const ua = navigator.userAgent;
   const safari = /Safari\//.test(ua) && !/(Chrome|Chromium|CriOS|Edg|Firefox|FxiOS)\//.test(ua);
   const v = document.createElement("video");
-  support = !safari && !!v.canPlayType('video/webm; codecs="vp9"');
+  // 省流量模式（Android Chrome 的「精简模式」/ Save-Data）下不下载视频，只显示立绘
+  const saveData = !!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+  support = !safari && !saveData && !!v.canPlayType('video/webm; codecs="vp9"');
   return support;
 }
 
@@ -65,7 +67,15 @@ export function RinneClip({ clip, outfit, bust, replay = 0 }: { clip: ClipId; ou
     if (!ok || !v) return;
     let t: ReturnType<typeof setTimeout> | undefined;
     const fig = v.closest(".rn-fig");
-    const on = () => fig?.classList.add("rn-clip-on");
+    // 等第一帧真正画到屏幕上再藏立绘：只听 playing 时偶尔会先藏了立绘、视频还没出帧，闪一下空白
+    type RVFC = HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+    const on = () => {
+      const rv = v as RVFC;
+      if (rv.requestVideoFrameCallback) rv.requestVideoFrameCallback(() => !v.paused && fig?.classList.add("rn-clip-on"));
+      else fig?.classList.add("rn-clip-on");
+    };
+    // 重播间隔加一点随机，页面上几个棱音不会整齐划一地同时动
+    const gap = () => Math.round(replay * (0.8 + Math.random() * 0.6));
     // 换回静态图时不走淡入（否则静态图从透明慢慢出现，人物会闪一下）：临时关掉过渡，两帧后恢复
     const off = () => {
       if (!fig?.classList.contains("rn-clip-on")) return;
@@ -80,7 +90,7 @@ export function RinneClip({ clip, outfit, bust, replay = 0 }: { clip: ClipId; ou
         t = setTimeout(() => {
           t = undefined;
           v.play().catch(() => {});
-        }, replay);
+        }, gap());
     };
     v.addEventListener("playing", on);
     v.addEventListener("pause", off);
@@ -93,12 +103,13 @@ export function RinneClip({ clip, outfit, bust, replay = 0 }: { clip: ClipId; ou
         ? new IntersectionObserver(
             (es) => {
               const vis = es.some((e) => e.isIntersecting);
+              visible = vis;
               if (vis) {
                 if (!seen) {
                   seen = true;
                   if (!v.getAttribute("src") && v.dataset.src) v.src = v.dataset.src;
                 }
-                if (v.paused && !t) v.play().catch(off);
+                if (v.paused && !t && !document.hidden) v.play().catch(off);
               } else if (!v.paused) {
                 if (t) clearTimeout(t);
                 t = undefined;
@@ -109,6 +120,19 @@ export function RinneClip({ clip, outfit, bust, replay = 0 }: { clip: ClipId; ou
             { rootMargin: "120px" },
           )
         : null;
+    // 切到别的标签页 / 最小化时暂停，回来再接着播（省电，也不会回来时一堆动作叠在一起）
+    let visible = false;
+    const onVis = () => {
+      if (document.hidden) {
+        if (t) clearTimeout(t);
+        t = undefined;
+        if (!v.paused) {
+          v.pause();
+          v.currentTime = 0;
+        }
+      } else if (visible && v.paused && v.getAttribute("src")) t = setTimeout(() => ((t = undefined), v.play().catch(off)), 400);
+    };
+    document.addEventListener("visibilitychange", onVis);
     if (io) io.observe(fig ?? v);
     else {
       if (!v.getAttribute("src") && v.dataset.src) v.src = v.dataset.src;
@@ -116,6 +140,7 @@ export function RinneClip({ clip, outfit, bust, replay = 0 }: { clip: ClipId; ou
     }
     return () => {
       io?.disconnect();
+      document.removeEventListener("visibilitychange", onVis);
       off();
       v.removeEventListener("playing", on);
       v.removeEventListener("pause", off);

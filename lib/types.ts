@@ -248,6 +248,8 @@ export interface Settings {
   rinneMotion?: "system" | "on" | "off";
   /** 是否在界面里显示棱音的立绘 */
   rinneShow?: boolean;
+  /** 棱音形象设置最后一次改动的时间（毫秒），和浏览器 cookie 里的比新旧 */
+  rinneAt?: number;
 }
 
 export interface Onboarding {

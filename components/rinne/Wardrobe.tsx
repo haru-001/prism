@@ -19,7 +19,8 @@ const MOTIONS: { v: RinneMotion; t: string }[] = [
  * 打开「自动换装」后按时段和季节圈出几套，每次访问随机挑一套（同一次访问内不变，尽量不和上次重复）；选中的那套会进工作日白天的候选。
  */
 export function Wardrobe() {
-  const { outfit, chosen, motion, show, auto, setPrefs } = useRinne();
+  const { outfit, chosen, motion, show, auto, pinnedUntil, setPrefs } = useRinne();
+  const until = pinnedUntil ? new Date(pinnedUntil).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : null;
   const [hover, setHover] = useState<OutfitId | null>(null);
   const pick = (o: OutfitId) => {
     setHover(null);
@@ -90,8 +91,13 @@ export function Wardrobe() {
           <div className="flex items-start gap-3">
             <Toggle on={auto} onChange={(v) => setPrefs({ auto: v })} />
             <span>
-              自动换装
-              <span className="block text-xs text-muted">按时段和季节挑几套合适的，每次打开随机换一套（尽量不和上次重复）：深夜居家，周末运动或便装，周五、周六晚上礼服或旗袍；工作日白天在选中的那套、职业装和当季服装里换。</span>
+              按时段自动换装（默认开）
+              <span className="block text-xs text-muted">按时段和季节挑几套合适的，每次打开随机换一套（尽量不和上次重复）：深夜居家，周末运动或便装，周五、周六晚上礼服或旗袍；工作日白天在选中的那套、职业装和当季服装里换。开着时手动点一套，会先穿到这个时段结束再恢复自动。</span>
+              {auto && until && (
+                <span className="mt-1 block text-xs text-[var(--acc)]" data-testid="wardrobe-pinned">
+                  手动换上的这套会保持到 {until}，之后恢复自动换装
+                </span>
+              )}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">

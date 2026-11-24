@@ -266,26 +266,51 @@ export function autoPool(base: OutfitId, d: Date = new Date()): { slot: string; 
   return { slot: `${date}/${weekend ? "weekend" : "day"}`, pool: uniq(pool) };
 }
 
+/** 当前时段什么时候结束（下一个换装时间点：6、9（周末）、19、22 点） */
+export function slotEndsAt(d: Date = new Date()): Date {
+  const weekend = d.getDay() === 0 || d.getDay() === 6;
+  const marks = weekend ? [6, 9, 19, 22] : [6, 19, 22];
+  const h = d.getHours();
+  const next = marks.find((m) => m > h);
+  const e = new Date(d);
+  e.setMinutes(0, 0, 0);
+  if (next === undefined) {
+    e.setDate(e.getDate() + 1);
+    e.setHours(6);
+  } else e.setHours(next);
+  return e;
+}
+
 /** 只按规则取一套（不随机），给服务端首屏或测试用：返回池子里的第一套 */
 export function autoOutfit(base: OutfitId, d: Date = new Date()): OutfitId {
   return autoPool(base, d).pool[0];
 }
 
-/** 存在 cookie 里的形象设置（登录页、引导页还没有设置可读时用），格式 outfit|motion|show|auto */
+/** 存在 cookie 里的形象设置（登录页、引导页还没有设置可读时用，登录后用来和服务端比新旧），格式 outfit|motion|show|auto|at */
 export const RINNE_COOKIE = "prism_rinne";
 export interface RinnePrefs {
   outfit: OutfitId;
   motion: RinneMotion;
   show: boolean;
-  /** 自动换装 */
+  /** 自动换装（默认开） */
   auto: boolean;
+  /** 最后一次改动的时间（毫秒）。cookie 和服务端各存一份，谁新用谁：服务端没存上或读到旧缓存时不会把刚换的衣服换回去 */
+  at: number;
 }
-export const DEFAULT_PREFS: RinnePrefs = { outfit: DEFAULT_OUTFIT, motion: "system", show: true, auto: false };
+export const DEFAULT_PREFS: RinnePrefs = { outfit: DEFAULT_OUTFIT, motion: "system", show: true, auto: true, at: 0 };
 export function parsePrefs(v: string | undefined | null): RinnePrefs {
   if (!v) return DEFAULT_PREFS;
-  const [o, m, s, a] = decodeURIComponent(v).split("|");
-  return { outfit: isOutfit(o) ? o : DEFAULT_OUTFIT, motion: isMotion(m) ? m : "system", show: s !== "0", auto: a === "1" };
+  const [o, m, s, a, t] = decodeURIComponent(v).split("|");
+  const at = Number(t) || 0;
+  return {
+    outfit: isOutfit(o) ? o : DEFAULT_OUTFIT,
+    motion: isMotion(m) ? m : "system",
+    show: s !== "0",
+    // 旧版 cookie（没有 at）里的 auto=0 是当时的默认值，不是用户关的：按新默认打开
+    auto: at ? a === "1" : true,
+    at,
+  };
 }
 export function prefsCookie(p: RinnePrefs) {
-  return `${p.outfit}|${p.motion}|${p.show ? 1 : 0}|${p.auto ? 1 : 0}`;
+  return `${p.outfit}|${p.motion}|${p.show ? 1 : 0}|${p.auto ? 1 : 0}|${p.at || 0}`;
 }

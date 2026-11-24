@@ -12,6 +12,7 @@ import { Check, Code2, Download, Eye, FileDown, HeartPulse, Menu, Palette, Scrol
 import type { ChatMsg, Conversation, ModelGroup, Preset } from "@/lib/types";
 import { api, readEvents, uid, notifyDbDown } from "@/lib/client/api";
 import { fetchConv, peekConv, putConv, takeInitial } from "@/lib/client/convCache";
+import { takeChatDraft } from "@/lib/client/handoff";
 import { copy, fill } from "@/lib/copy";
 import { useApp } from "../AppContext";
 import { IdolAvatar } from "../Logo";
@@ -200,6 +201,22 @@ export function ChatView({ id: initialId, initial }: { id?: string; initial?: Pr
     },
     [imageModel, catalog, settings.defaultImageModel, loadVideoCfg],
   );
+
+  // 从提示词库 / 画图页「发到对话」带过来的内容：新对话打开时填进输入框（只取一次）
+  const draftTaken = useRef(false);
+  useEffect(() => {
+    if (initialId || !ready || draftTaken.current) return;
+    draftTaken.current = true;
+    const d = takeChatDraft();
+    if (!d) return;
+    setMode(d.mode);
+    setInput(d.text);
+    if (d.images?.length) {
+      if (d.mode === "image") setImageOpts((o) => ({ ...o, refs: d.images!.slice(0, 4) }));
+      else setAttachments(d.images.slice(0, 4));
+    }
+    setTimeout(() => textRef.current?.focus(), 0);
+  }, [initialId, ready, setMode]);
 
   const current = mode === "image" ? imageModel : chatModel;
   const hasModels = catalog.some((g) => !g.disabled && g.models.length);
